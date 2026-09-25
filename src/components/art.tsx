@@ -13,7 +13,7 @@ export function BuildingArt({ bg, a, b, height = 130, width = 320 }: { bg: strin
   const light = (hex: string) => (hex === '#8A6A34' ? '#F2E2BF' : '#DDE8E3');
   return (
     <View style={{ height, backgroundColor: bg, overflow: 'hidden' }}>
-      <Svg width="100%" height={height} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMax slice">
+      <Svg width="100%" height={height} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMax meet">
         {/* tall building */}
         <Rect x={86} y={22} width={92} height={112} fill={a} />
         <Rect x={86} y={18} width={92} height={6} fill={a} opacity={0.75} />
