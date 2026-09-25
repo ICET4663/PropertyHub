@@ -1,116 +1,112 @@
-import { useColorScheme } from 'react-native';
+import { useWindowDimensions } from 'react-native';
 
-export interface Theme {
-  dark: boolean;
-  colors: {
-    bg: string;
-    card: string;
-    cardAlt: string;
-    text: string;
-    subtext: string;
-    border: string;
-    primary: string;
-    primarySoft: string;
-    onPrimary: string;
-    accent: string;
-    accentSoft: string;
-    success: string;
-    successSoft: string;
-    danger: string;
-    dangerSoft: string;
-    warning: string;
-    warningSoft: string;
-    info: string;
-    infoSoft: string;
-    tabBar: string;
-    headerBg: string;
-    inputBg: string;
-    overlay: string;
-    shadow: string;
-  };
-}
+// PropertyHub design tokens — deep evergreen chrome, warm paper canvas, honey accent.
+export const colors = {
+  // chrome
+  sidebar: '#0F2A23',
+  sidebarRaised: '#173A30',
+  sidebarBorder: '#1F4538',
+  sidebarText: '#C9D6D0',
+  sidebarMuted: '#7F998F',
 
-const lightColors: Theme['colors'] = {
-  bg: '#F2F5FA',
+  // canvas & surfaces
+  bg: '#F3F2ED',
   card: '#FFFFFF',
-  cardAlt: '#F7F9FD',
-  text: '#0E1B2C',
-  subtext: '#64748B',
-  border: '#E4E9F2',
-  primary: '#0B2545',
-  primarySoft: '#E8EEF7',
-  onPrimary: '#FFFFFF',
-  accent: '#E8A33D',
-  accentSoft: '#FDF3E3',
-  success: '#1E9E6A',
-  successSoft: '#E3F5EC',
-  danger: '#E5484D',
-  dangerSoft: '#FDECEC',
-  warning: '#D97706',
-  warningSoft: '#FEF3E2',
-  info: '#3B82F6',
-  infoSoft: '#E8F0FE',
-  tabBar: '#FFFFFF',
-  headerBg: '#FFFFFF',
-  inputBg: '#F1F4FA',
-  overlay: 'rgba(11, 37, 69, 0.45)',
-  shadow: '#0B2545',
+  cardAlt: '#FAF9F5',
+  border: '#E7E4DC',
+  borderStrong: '#D6D2C7',
+  inputBg: '#FFFFFF',
+
+  // text
+  text: '#14231E',
+  textSoft: '#3B4A44',
+  subtext: '#6E7A74',
+  faint: '#9AA39E',
+
+  // brand
+  primary: '#1F5C4A',
+  primaryHover: '#184B3C',
+  primarySoft: '#E3EEE8',
+  primaryTint: '#F0F6F2',
+  accent: '#E8B04B',
+  accentDeep: '#B7801F',
+  accentSoft: '#FBF1DD',
+
+  // semantic
+  success: '#1F7A55',
+  successSoft: '#E1F2E9',
+  danger: '#D4483B',
+  dangerDeep: '#A92E23',
+  dangerSoft: '#FBE7E4',
+  warning: '#C9851A',
+  warningSoft: '#FCF0DA',
+  info: '#3A6FD8',
+  infoSoft: '#E6EEFC',
+  purple: '#6F55C8',
+  purpleSoft: '#EEEAFB',
+  neutralSoft: '#EFEEEA',
+
+  // data viz
+  vizOccupied: '#1F5C4A',
+  vizVacant: '#4C7FE0',
+  vizMaint: '#E0A526',
+  vizSage: '#9DB5AA',
+  vizBronze: '#C68D2E',
+
+  overlay: 'rgba(15, 42, 35, 0.45)',
+  white: '#FFFFFF',
 };
 
-const darkColors: Theme['colors'] = {
-  bg: '#0A1220',
-  card: '#131D31',
-  cardAlt: '#182440',
-  text: '#F1F5F9',
-  subtext: '#8CA0B8',
-  border: '#22304A',
-  primary: '#5B8DD9',
-  primarySoft: '#1B2B47',
-  onPrimary: '#FFFFFF',
-  accent: '#F0B45C',
-  accentSoft: '#2E2410',
-  success: '#34C77B',
-  successSoft: '#12352A',
-  danger: '#F0616B',
-  dangerSoft: '#3A1B22',
-  warning: '#F5A524',
-  warningSoft: '#3A2C12',
-  info: '#60A5FA',
-  infoSoft: '#16283F',
-  tabBar: '#101A2E',
-  headerBg: '#101A2E',
-  inputBg: '#1A2740',
-  overlay: 'rgba(0, 0, 0, 0.6)',
-  shadow: '#000000',
+export const radius = { xs: 6, sm: 8, md: 10, lg: 14, xl: 18, full: 999 };
+
+export const font = {
+  regular: 'PlusJakartaSans_400Regular',
+  medium: 'PlusJakartaSans_500Medium',
+  semibold: 'PlusJakartaSans_600SemiBold',
+  bold: 'PlusJakartaSans_700Bold',
+  extrabold: 'PlusJakartaSans_800ExtraBold',
+  mono: 'Menlo',
 };
 
-export function useTheme(): Theme {
-  const scheme = useColorScheme();
-  const dark = scheme === 'dark';
-  return {
-    dark,
-    colors: dark ? darkColors : lightColors,
-  };
+export const shadow = {
+  card: {
+    shadowColor: '#0F2A23',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  pop: {
+    shadowColor: '#0F2A23',
+    shadowOpacity: 0.14,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
+  },
+};
+
+export type Breakpoint = 'mobile' | 'tablet' | 'desktop';
+
+export function useBreakpoint() {
+  const { width, height } = useWindowDimensions();
+  const bp: Breakpoint = width >= 1100 ? 'desktop' : width >= 720 ? 'tablet' : 'mobile';
+  return { width, height, bp, isMobile: bp === 'mobile', isDesktop: bp === 'desktop' };
 }
 
-export const spacing = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  xxl: 28,
-};
+// Pick a value per breakpoint, falling back to the next smaller one.
+export function useResponsive<T>(v: { mobile: T; tablet?: T; desktop?: T }): T {
+  const { bp } = useBreakpoint();
+  if (bp === 'desktop') return v.desktop ?? v.tablet ?? v.mobile;
+  if (bp === 'tablet') return v.tablet ?? v.mobile;
+  return v.mobile;
+}
 
-export const radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 22,
-  full: 999,
-};
-
-export const AVATAR_COLORS = [
-  '#0B2545', '#1E9E6A', '#E8A33D', '#7C5CFC', '#E5484D',
-  '#0E7C86', '#C9526E', '#3B82F6', '#8B5CF6', '#D97706',
+// Soft tones for initials avatars (bg, fg)
+export const AVATAR_TONES: Array<[string, string]> = [
+  ['#FBEEDB', '#9A6414'],
+  ['#E3EEE8', '#1F5C4A'],
+  ['#E6EEFC', '#3A6FD8'],
+  ['#EEEAFB', '#6F55C8'],
+  ['#FBE7E4', '#B23A2F'],
+  ['#E8F3F1', '#1D7468'],
 ];

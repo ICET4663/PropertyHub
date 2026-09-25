@@ -1,180 +1,301 @@
-export type Role = 'super_admin' | 'manager' | 'tenant';
+export type Role = 'super_admin' | 'manager' | 'accountant' | 'caretaker' | 'tenant';
 
 export interface User {
   id: string;
   name: string;
-  role: Role;
   email: string;
   phone: string;
-  title: string;
-  avatarColor: string;
-  propertyIds?: string[]; // for managers
-  tenantId?: string; // for tenant users
+  password: string;
+  role: Role;
+  access: string; // human label e.g. "All locations"
+  propertyIds?: string[]; // scope for managers / caretakers
+  tenantId?: string;
+  twoStep: boolean;
+  lastActive: string; // ISO
+  status: 'active' | 'invited' | 'suspended';
 }
 
 export interface Location {
   id: string;
   name: string;
+  area: string; // street/corridor
   city: string;
   state: string;
-  address: string;
+  description: string;
+  managerId: string;
 }
+
+export type PropertyType = 'Apartment complex' | 'Luxury apartments' | 'Block of flats' | 'Estate' | 'Serviced apartments';
 
 export interface Property {
   id: string;
   name: string;
-  code: string;
+  short: string;
+  type: PropertyType;
   locationId: string;
+  address: string;
   managerId: string;
-  yearBuilt: number;
+  addedAt: string;
   description: string;
   amenities: string[];
-  color: string;
+  art: { bg: string; a: string; b: string }; // illustration palette
+  status: 'active' | 'archived';
+}
+
+export interface Block {
+  id: string;
+  propertyId: string;
+  name: string; // "Block A"
+  floors: number;
 }
 
 export type UnitStatus = 'occupied' | 'vacant' | 'maintenance';
-export type UnitType = 'Studio' | '1BR' | '2BR' | '3BR';
+export type UnitType = 'Studio' | '1 Bedroom' | '2 Bedroom' | '3 Bedroom' | 'Duplex';
 
 export interface Unit {
   id: string;
   propertyId: string;
-  unitNumber: string;
+  blockId: string;
+  code: string; // "A4"
+  floor: number; // 0 = ground
   type: UnitType;
-  bedrooms: number;
   bathrooms: number;
-  rent: number; // monthly NGN
+  sizeSqm: number;
+  rent: number; // annual NGN
+  serviceCharge: number; // annual NGN
+  deposit: number;
   status: UnitStatus;
-  floor: number;
+  features: string[];
+  vacantSince?: string;
+  vacantNote?: 'Listed' | 'Viewing booked' | 'Repairs';
 }
+
+export type TenantStatus = 'active' | 'pending' | 'deactivated' | 'former';
 
 export interface Tenant {
   id: string;
+  code: string; // TN-00412
   name: string;
   email: string;
   phone: string;
-  unitId: string;
-  propertyId: string;
-  occupation: string;
-  avatarColor: string;
+  whatsapp?: string;
+  dob: string;
+  gender: 'Male' | 'Female';
+  address: string; // previous / residential
+  unitId?: string;
+  propertyId?: string;
+  status: TenantStatus;
+  onboarding: 'approved' | 'pending' | 'draft';
+  selfSignup?: boolean;
   joinedAt: string;
-  emergencyContact: { name: string; phone: string; relationship: string };
-  status: 'active' | 'former';
+  language: string;
+  nextOfKin: { name: string; relationship: string; phone: string; email?: string; address: string };
+  employment: { status: 'Employed' | 'Self-employed' | 'Student' | 'Retired' | 'Unemployed'; employer: string; occupation: string; workAddress: string };
+  identification: { type: string; number: string; verified: boolean };
+  prefs: { smsUpdates: boolean; emailAnnouncements: boolean; whatsapp: boolean };
 }
 
-export type LeaseStatus = 'active' | 'expiring' | 'expired' | 'terminated';
+export interface Reminder {
+  label: string; // "90-day renewal reminder"
+  channels: string; // "Email · SMS"
+  date: string;
+  status: 'Read' | 'Delivered' | 'Scheduled';
+}
 
 export interface Lease {
-  id: string;
+  id: string; // LS-0318
   tenantId: string;
   unitId: string;
   propertyId: string;
-  startDate: string; // ISO date
-  endDate: string; // ISO date
-  rent: number;
+  start: string;
+  end: string;
+  rent: number; // annual
+  serviceCharge: number;
   deposit: number;
   termMonths: number;
+  noticeMonths: number;
+  paymentCycle: string;
+  createdBy: string;
   terminated?: boolean;
+  renewedTo?: string; // id of the lease that replaced this one
+  renewedFrom?: string;
+  draft?: boolean;
+  agreement: string; // file name
+  signed: boolean;
+  tenantIntent?: 'renew' | 'move_out';
+  reminders: Reminder[];
 }
 
-export type MaintenanceStatus = 'open' | 'in_progress' | 'resolved';
-export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type LeaseStatus = 'active' | 'expiring' | 'expired' | 'terminated' | 'renewed' | 'draft';
 
-export interface MaintenanceNote {
+export type RequestStatus = 'new' | 'assigned' | 'in_progress' | 'resolved' | 'closed';
+export type Priority = 'low' | 'medium' | 'high' | 'urgent';
+export type Category =
+  | 'Plumbing' | 'Electrical' | 'Air conditioning' | 'Generator' | 'Water supply'
+  | 'Building repairs' | 'Security' | 'Cleaning' | 'Pests' | 'Other';
+
+export interface RequestEvent {
   id: string;
-  author: string;
+  kind: 'created' | 'priority' | 'vendor' | 'status' | 'comment' | 'waiting';
   text: string;
-  createdAt: string;
+  by: string;
+  at: string;
+  internal?: boolean;
+  shared?: boolean;
 }
 
 export interface MaintenanceRequest {
-  id: string;
+  id: string; // MR-2087
+  tenantId: string;
   unitId: string;
   propertyId: string;
-  tenantId: string;
+  category: Category;
   title: string;
   description: string;
-  category: 'Plumbing' | 'Electrical' | 'HVAC' | 'Structural' | 'Appliance' | 'Other';
+  where: string; // room
   priority: Priority;
-  status: MaintenanceStatus;
+  status: RequestStatus;
+  vendorId?: string;
+  visit?: { date: string; window: string };
   createdAt: string;
   updatedAt: string;
-  scheduledDate?: string;
+  resolvedAt?: string;
+  photos: number;
+  access: string;
+  caretakerAccess: boolean;
+  estimate?: number;
   cost?: number;
-  notes: MaintenanceNote[];
+  rating?: number;
+  events: RequestEvent[];
+}
+
+export interface Vendor {
+  id: string;
+  name: string;
+  contact: string;
+  phone: string;
+  email: string;
+  trade: Category;
+  coverage: string;
+  completed: number;
+  avgDays: number;
+  rating: number;
+  ratingCount: number;
+  status: 'active' | 'paused';
+  spendThisMonth: number;
+}
+
+export interface Announcement {
+  id: string;
+  subject: string;
+  message: string;
+  audience: string;
+  propertyId?: string;
+  channels: Array<'In-app' | 'Email' | 'SMS' | 'WhatsApp'>;
+  sentAt: string;
+  recipients: number;
+  readPct: number;
+  scheduledFor?: string;
+  status: 'sent' | 'scheduled' | 'template';
+  by: string;
+}
+
+export interface DocFile {
+  id: string;
+  name: string;
+  kind: 'pdf' | 'jpg' | 'doc';
+  folder: 'Lease agreements' | 'Tenant ID and KYC' | 'Receipts' | 'Property papers' | 'Maintenance' | 'Vendor contracts';
+  linkedTo: string;
+  tenantId?: string;
+  propertyId?: string;
+  uploadedBy: string;
+  date: string;
+  sizeKb: number;
+  expires?: string;
+}
+
+export type NotifCategory = 'Maintenance' | 'Leases' | 'Rent' | 'Tenants' | 'System' | 'Announcement' | 'My requests';
+
+export interface AppNotification {
+  id: string;
+  audience: 'staff' | string; // 'staff' or a tenantId
+  category: NotifCategory;
+  title: string;
+  body: string;
+  meta: string;
+  at: string;
+  read: boolean;
+  tone: 'danger' | 'warning' | 'success' | 'info' | 'purple' | 'neutral';
+  link?: { name: string; params?: Record<string, string> };
 }
 
 export interface Payment {
   id: string;
   tenantId: string;
-  unitId: string;
-  propertyId: string;
+  leaseId: string;
+  label: string;
   amount: number;
-  period: string; // 'YYYY-MM'
-  dueDate: string;
-  paidDate?: string;
-  status: 'paid' | 'pending' | 'overdue';
-  method?: string;
+  date: string;
+  method: string;
+  status: 'paid' | 'overdue' | 'pending';
 }
 
-export interface Message {
+export interface ActivityLog {
   id: string;
-  senderId: string;
-  text: string;
-  createdAt: string;
-  read: boolean;
+  at: string;
+  user: string;
+  action: string;
+  record: string;
+  area: 'Maintenance' | 'Leases' | 'Communications' | 'Properties' | 'Tenants' | 'Reports' | 'Users' | 'Security';
+  device: string;
 }
 
-export interface Conversation {
-  id: string;
-  tenantId: string;
-  messages: Message[];
+export interface Settings {
+  orgName: string;
+  rcNumber: string;
+  email: string;
+  phone: string;
+  address: string;
+  currency: string;
+  timezone: string;
+  dateFormat: string;
+  response: Record<Priority, number>; // hours
+  selfReport: boolean;
+  selfDocs: boolean;
+  rateRepairs: boolean;
 }
 
-export type ActivityType = 'tenant' | 'lease' | 'maintenance' | 'payment' | 'property' | 'system';
-
-export interface Activity {
+export interface OnboardingDraft {
   id: string;
-  type: ActivityType;
-  text: string;
-  createdAt: string;
-  actor: string;
+  step: number;
+  startedBy: string;
+  savedAt: string;
+  personal: { name: string; phone: string; email: string; address: string; dob: string; gender: 'Male' | 'Female' };
+  kin: { name: string; relationship: string; phone: string; email: string; address: string };
+  employment: { status: Tenant['employment']['status']; employer: string; occupation: string; workAddress: string };
+  id_: { type: string; number: string; docUploaded: boolean; photoUploaded: boolean };
+  allocation: { locationId: string; propertyId: string; blockId: string; unitId: string };
+  lease: { start: string; end: string; agreementUploaded: boolean };
 }
 
 export interface AppState {
-  hydrated: boolean;
+  version: number;
   sessionUserId: string | null;
   users: User[];
   locations: Location[];
   properties: Property[];
+  blocks: Block[];
   units: Unit[];
   tenants: Tenant[];
   leases: Lease[];
-  maintenance: MaintenanceRequest[];
+  requests: MaintenanceRequest[];
+  vendors: Vendor[];
+  announcements: Announcement[];
+  documents: DocFile[];
+  notifications: AppNotification[];
   payments: Payment[];
-  conversations: Conversation[];
-  activities: Activity[];
-}
-
-export interface OnboardTenantInput {
-  name: string;
-  phone: string;
-  email: string;
-  occupation: string;
-  unitId: string;
-  startDate: string;
-  termMonths: number;
-  rent: number;
-  deposit: number;
-  emergencyName: string;
-  emergencyPhone: string;
-  emergencyRelationship: string;
-}
-
-export interface NewRequestInput {
-  unitId: string;
-  tenantId: string;
-  title: string;
-  description: string;
-  category: MaintenanceRequest['category'];
-  priority: Priority;
+  logs: ActivityLog[];
+  settings: Settings;
+  drafts: OnboardingDraft[];
+  locationFilter: string | null; // topbar "Viewing"
 }

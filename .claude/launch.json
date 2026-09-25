@@ -2,9 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "agon-web",
+      "name": "propertyhub",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["expo", "start", "--web", "--port", "8081"],
+      "runtimeArgs": ["expo", "start", "--web", "--lan", "--port", "8081"],
+      "env": { "REACT_NATIVE_PACKAGER_HOSTNAME": "192.168.100.7" },
       "port": 8081
     }
   ]
