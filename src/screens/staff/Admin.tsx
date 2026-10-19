@@ -6,7 +6,7 @@ import {
   CircleHelp, Phone, BookOpen, LifeBuoy, RotateCcw,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
-import { useLookup, useScope, useStore } from '../../store/AppContext';
+import { useLookup, useScope, useStore, type AuthResult, type CreateUserInput } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader, roleLabel } from '../../components/shell';
 import {
@@ -18,7 +18,7 @@ import { DataTable, FileIcon, Pagination, usePaged } from '../../components/data
 import { TrackBars } from '../../components/charts';
 import { usePortfolio, usePropertyStats } from '../../lib/stats';
 import { downloadCSV, printPage } from '../../lib/export';
-import type { Announcement, AppNotification, DocFile, Priority, Role } from '../../types';
+import type { Announcement, AppNotification, DocFile, Priority, Role, User } from '../../types';
 import { MONTHS, addMonths, daysUntil, feedStamp, fmtDate, fmtShort, fmtStamp, fmtTime, isToday, naira, parseDate, pct, timeAgo } from '../../utils';
 
 // ---------------------------------------------------------------- Communications
@@ -509,21 +509,22 @@ const PERMS: Array<{ label: string; cells: [string, string, string, string] }> =
 const ROLE_TONE: Record<Role, Tone> = { super_admin: 'accent', manager: 'purple', accountant: 'info', caretaker: 'neutral', tenant: 'neutral' };
 
 export function UsersScreen() {
-  const { state, me, inviteUser, updateUser } = useStore();
+  const { state, me, createUser, saveUserRole, refreshUsers, sendCode, updateUser } = useStore();
   const toast = useToast();
   const confirm = useConfirm();
   const [tab, setTab] = useState('team');
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const team = state.users.filter((u) => u.role !== 'tenant');
   const pending = team.filter((u) => u.status === 'invited');
   const cell = (v: string) => v === '—' ? <T size={12.5} color={colors.faint}>—</T> : <Badge label={v} tone={v === 'Full' ? 'success' : v === 'Own sites' ? 'accent' : 'info'} size="sm" />;
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Users & Permissions' }]} title="Users & Permissions" actions={<Button title="Invite user" icon={UserPlus} onPress={() => setInviteOpen(true)} />} />
-      <Tabs value={tab} onChange={setTab} style={{ marginBottom: 16 }} tabs={[{ value: 'team', label: 'Team members', count: team.length }, { value: 'roles', label: 'Roles', count: 4 }, { value: 'pending', label: 'Pending invites', count: pending.length }]} />
+      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Users & Permissions' }]} title="Users & Permissions" actions={<><Button title="Refresh users" variant="secondary" onPress={() => { void refreshUsers().catch((e) => toast(String(e), 'danger')); }} /><Button title="Create user" icon={UserPlus} onPress={() => setInviteOpen(true)} /></>} />
+      <Tabs value={tab} onChange={setTab} style={{ marginBottom: 16 }} tabs={[{ value: 'team', label: 'Team members', count: team.length }, { value: 'accounts', label: 'All accounts', count: state.users.length }, { value: 'roles', label: 'Roles', count: 5 }, { value: 'pending', label: 'Pending invites', count: pending.length }]} />
       {tab !== 'roles' ? (
         <Card pad={0} style={{ marginBottom: 16 }}>
-          <DataTable rows={tab === 'pending' ? pending : team} keyOf={(u) => u.id} empty={<EmptyState icon={UserPlus} title="No pending invites" />} columns={[
+          <DataTable rows={tab === 'pending' ? pending : tab === 'accounts' ? state.users : team} keyOf={(u) => u.id} empty={<EmptyState icon={UserPlus} title="No pending invites" />} columns={[
             { key: 'u', title: 'User', flex: 1.7, min: 210, render: (u) => <Row gap={10}><Avatar name={u.name} size={30} /><View style={{ flex: 1 }}><T size={13} weight="semibold">{u.name}{u.id === me?.id ? <T size={11.5} color={colors.subtext}>  (you)</T> : null}</T><T size={11.5} color={colors.subtext} numberOfLines={1}>{u.email}</T></View></Row> },
             { key: 'r', title: 'Role', min: 140, render: (u) => <Badge label={roleLabel(u.role)} tone={ROLE_TONE[u.role]} /> },
             { key: 'a', title: 'Access to', flex: 1.2, min: 150, render: (u) => <T size={12.5} color={colors.textSoft} numberOfLines={1}>{u.access}</T> },
@@ -533,9 +534,9 @@ export function UsersScreen() {
             { key: 'm', title: '', min: 50, flex: 0.3, align: 'right', render: (u) => u.id === me?.id ? null : (
               <Menu width={200} trigger={(open) => <Touch onPress={open} style={{ padding: 6, borderRadius: 6 }} hoverStyle={{ backgroundColor: colors.neutralSoft }}><Ellipsis size={17} color={colors.subtext} /></Touch>}
                 items={[
-                  ...(u.status === 'invited' ? [{ label: 'Resend invite', icon: Mail, onPress: () => toast(`Invite resent to ${u.email}`) }] : []),
+                  { label: 'Edit role and access', icon: Pencil, onPress: () => setEditingUser(u) },
                   { label: u.twoStep ? 'Turn off two-step' : 'Require two-step', icon: ShieldCheck, onPress: () => { updateUser(u.id, { twoStep: !u.twoStep }); toast(`Two-step ${u.twoStep ? 'turned off' : 'required'} for ${u.name}`); } },
-                  { label: 'Reset password', icon: KeyRound, onPress: () => toast(`Password reset link sent to ${u.email}`) },
+                  { label: 'Reset password', icon: KeyRound, onPress: () => { void sendCode(u.email, 'reset').then((r) => toast(r.ok ? `Password reset email sent to ${u.email}` : r.error, r.ok ? 'success' : 'danger')); } },
                   u.status === 'suspended' ? { label: 'Reactivate', icon: RotateCcw, onPress: () => { updateUser(u.id, { status: 'active' }); toast(`${u.name} reactivated`); } }
                     : { label: 'Suspend access', icon: X, danger: true, onPress: () => confirm.ask({ title: `Suspend ${u.name}?`, body: 'They will be signed out and unable to sign in until reactivated.', confirm: 'Suspend', danger: true, onConfirm: () => { updateUser(u.id, { status: 'suspended' }); toast(`${u.name} suspended`); } }) },
                 ]} />
@@ -544,7 +545,7 @@ export function UsersScreen() {
         </Card>
       ) : null}
       <Card pad={0}>
-        <View style={{ padding: 20, paddingBottom: 12 }}><CardHeader style={{ marginBottom: 0 }} title="Role permissions" subtitle="What each role can do. Super Admin can do everything." right={<Button title="Edit roles" size="sm" variant="secondary" onPress={() => toast('Custom roles are coming in Phase 2', 'info')} />} /></View>
+        <View style={{ padding: 20, paddingBottom: 12 }}><CardHeader style={{ marginBottom: 0 }} title="Role permissions" subtitle="What each role can do. Super Admin can do everything."  /></View>
         <DataTable rows={PERMS} keyOf={(p) => p.label} dense columns={[
           { key: 'p', title: 'Permission', flex: 2, min: 220, render: (p) => <T size={13}>{p.label}</T> },
           { key: 'a', title: 'Super Admin', min: 110, align: 'center', render: (p) => cell(p.cells[0]) },
@@ -554,37 +555,93 @@ export function UsersScreen() {
         ]} />
       </Card>
       {confirm.node}
-      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onInvite={(u) => { inviteUser(u); setInviteOpen(false); }} />
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onCreate={async (u) => {
+        const result = await createUser(u);
+        if (result.ok) { toast('Account created. The user must confirm their email if required by your authentication settings.', 'success'); setInviteOpen(false); }
+        return result;
+      }} />
+      {editingUser ? <RoleDialog user={editingUser} onClose={() => setEditingUser(null)} onSave={async (role, ids, access) => {
+        const result = await saveUserRole(editingUser.id, role, ids, access);
+        if (result.ok) { toast('Role and access saved', 'success'); setEditingUser(null); }
+        return result;
+      }} /> : null}
     </Page>
   );
 }
 
-function InviteDialog({ open, onClose, onInvite }: { open: boolean; onClose: () => void; onInvite: (u: { name: string; email: string; role: Role; access: string; propertyIds?: string[] }) => void }) {
+function accessLabel(role: Role, ids: string[], properties: { id: string; name: string }[]) {
+  if (role === 'super_admin') return 'All locations';
+  if (role === 'accountant') return 'All locations, read only';
+  if (role === 'tenant') return 'Own tenancy';
+  return properties.filter((p) => ids.includes(p.id)).map((p) => p.name).join(', ') || 'None yet';
+}
+
+function InviteDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (u: CreateUserInput) => Promise<AuthResult> }) {
   const { state } = useStore();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState<Role>('manager');
-  const [locs, setLocs] = useState<string[]>([]);
-  const valid = name.trim() && /^\S+@\S+\.\S+$/.test(email);
+  const [ids, setIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const valid = !!name.trim() && /^\S+@\S+\.\S+$/.test(email.trim()) && password.length >= 8 && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
+  const submit = async () => {
+    setLoading(true); setError('');
+    try {
+      const result = await onCreate({ name: name.trim(), email: email.trim(), password, role, access: accessLabel(role, ids, state.properties), propertyIds: ids });
+      if (!result.ok) setError(result.error);
+      else { setName(''); setEmail(''); setPassword(''); setIds([]); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  };
   return (
-    <Dialog open={open} onClose={onClose} title="Invite a team member" footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Send invite" disabled={!valid} onPress={() => {
-      const props = state.properties.filter((p) => locs.includes(p.locationId)).map((p) => p.id);
-      onInvite({ name: name.trim(), email: email.trim(), role, access: role === 'super_admin' ? 'All locations' : role === 'accountant' ? 'All locations, read only' : locs.length ? state.locations.filter((l) => locs.includes(l.id)).map((l) => l.name).join(', ') : 'None yet', propertyIds: props });
-      setName(''); setEmail(''); setLocs([]);
-    }} /></>}>
+    <Dialog open={open} onClose={() => { if (!loading) onClose(); }} title="Create a user account" footer={<><Button title="Cancel" variant="secondary" disabled={loading} onPress={onClose} /><Button title="Create account" loading={loading} disabled={!valid || loading} onPress={submit} /></>}>
       <View style={{ gap: 14 }}>
+        <Notice tone="info">Use a real email address. The user confirms their email before signing in when email confirmation is enabled. Existing users can be assigned a role from All accounts.</Notice>
         <Input label="Full name" required value={name} onChangeText={setName} />
-        <Input label="Work email" required value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-        <Select label="Role" required value={role} onChange={setRole} options={(['super_admin', 'manager', 'accountant', 'caretaker'] as Role[]).map((r) => ({ value: r, label: roleLabel(r) }))} />
-        {role === 'manager' || role === 'caretaker' ? (
-          <View style={{ gap: 8 }}>
-            <T size={12.5} weight="semibold" color={colors.textSoft}>Access to locations</T>
-            <Row wrap gap={8}>{state.locations.map((l) => <Chip key={l.id} label={l.name} active={locs.includes(l.id)} onPress={() => setLocs(locs.includes(l.id) ? locs.filter((x) => x !== l.id) : [...locs, l.id])} />)}</Row>
-          </View>
-        ) : null}
+        <Input label="Email address" required value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <Input label="Initial password" required value={password} onChangeText={setPassword} secure hint="At least 8 characters with a number and a symbol. Share this securely with the user." />
+        <Select label="Role" required value={role} onChange={setRole} options={(['super_admin', 'manager', 'accountant', 'caretaker', 'tenant'] as Role[]).map((r) => ({ value: r, label: roleLabel(r) }))} />
+        <PropertyAccess role={role} ids={ids} onChange={setIds} />
+        {error ? <Notice tone="danger">{error}</Notice> : null}
       </View>
     </Dialog>
   );
+}
+
+function PropertyAccess({ role, ids, onChange }: { role: Role; ids: string[]; onChange: (ids: string[]) => void }) {
+  const { state } = useStore();
+  if (role !== 'manager' && role !== 'caretaker') return null;
+  return <View style={{ gap: 8 }}>
+    <T size={12.5} weight="semibold">Access to properties</T>
+    <Row wrap gap={8}>{state.properties.map((p) => <Chip key={p.id} label={p.name} active={ids.includes(p.id)} onPress={() => onChange(ids.includes(p.id) ? ids.filter((id) => id !== p.id) : [...ids, p.id])} />)}</Row>
+    {!ids.length ? <Notice tone="info">Select properties to give this user access to their records.</Notice> : null}
+  </View>;
+}
+
+function RoleDialog({ user, onClose, onSave }: { user: User; onClose: () => void; onSave: (role: Role, ids: string[], access: string) => Promise<AuthResult> }) {
+  const { state } = useStore();
+  const [role, setRole] = useState(user.role);
+  const [ids, setIds] = useState(user.propertyIds ?? []);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  return <Dialog open onClose={() => { if (!loading) onClose(); }} title={`Role and access: ${user.name}`} footer={<><Button title="Cancel" variant="secondary" disabled={loading} onPress={onClose} /><Button title="Save access" loading={loading} disabled={loading} onPress={async () => {
+    setLoading(true); setError('');
+    try {
+      const result = await onSave(role, ids, accessLabel(role, ids, state.properties));
+      if (!result.ok) setError(result.error);
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  }} /></>}>
+    <View style={{ gap: 14 }}>
+      <T>{user.email}</T>
+      <Select label="Role" value={role} onChange={setRole} options={(['super_admin', 'manager', 'accountant', 'caretaker', 'tenant'] as Role[]).map((r) => ({ value: r, label: roleLabel(r) }))} />
+      <PropertyAccess role={role} ids={ids} onChange={setIds} />
+      <Notice tone="info">Ask the user to sign out and sign back in after changing their role.</Notice>
+      {error ? <Notice tone="danger">{error}</Notice> : null}
+    </View>
+  </Dialog>;
 }
 
 // ---------------------------------------------------------------- Activity logs

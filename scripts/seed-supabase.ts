@@ -79,7 +79,8 @@ async function main() {
   // ---- order matters: parents before children
   await upsert('profiles', people.map((u) => ({
     id: authId[u.id], legacy_id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, access: u.access,
-    two_step: u.twoStep, last_active: u.lastActive, status: u.status, tenant_id: null,
+    // Demo inboxes cannot receive verification emails.
+    two_step: false, last_active: u.lastActive, status: u.status, tenant_id: null,
   })));
   await upsert('locations', s.locations.map((l) => ({ ...toRow(l, ['managerId']), manager_id: uuid(l.managerId) })));
   await upsert('properties', s.properties.map((p) => ({ ...toRow(p, ['managerId']), manager_id: uuid(p.managerId) })));

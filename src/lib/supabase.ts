@@ -24,3 +24,10 @@ if (Platform.OS !== 'web') {
     else supabase.auth.stopAutoRefresh();
   });
 }
+
+/** A separate, in-memory auth client keeps account creation from replacing the admin session. */
+export function createSignupClient() {
+  return createClient(supabaseUrl ?? 'http://localhost', supabasePublishableKey ?? 'missing-key', {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+}

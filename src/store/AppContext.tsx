@@ -4,7 +4,7 @@ import type {
   MaintenanceRequest, OnboardingDraft, Priority, Property, RequestEvent, RequestStatus, Role, Settings,
   Tenant, Unit, User, Vendor,
 } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, createSignupClient } from '../lib/supabase';
 import { deviceLabel, emptyState, loadAll, nextCode, pushChanges } from '../lib/db';
 import { addDays, addMonths, fmtDate, leaseStatus, naira, toISODate, todayISO, uid } from '../utils';
 
@@ -23,6 +23,8 @@ export interface NewRequestInput {
 }
 
 export interface RenewInput { start: string; end: string; rent: number; serviceCharge: number; notifyTenant: boolean; scheduleReminders: boolean }
+
+export interface CreateUserInput { name: string; email: string; password: string; role: Role; access: string; propertyIds?: string[] }
 
 export interface SignUpInput { name: string; email: string; phone: string; password: string; invite: string }
 
@@ -82,7 +84,9 @@ interface Store {
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (audience: string) => void;
   // admin
-  inviteUser: (u: { name: string; email: string; role: Role; access: string; propertyIds?: string[] }) => void;
+  createUser: (u: CreateUserInput) => Promise<AuthResult>;
+  saveUserRole: (id: string, role: Role, propertyIds: string[], access: string) => Promise<AuthResult>;
+  refreshUsers: () => Promise<void>;
   updateUser: (id: string, patch: Partial<User>) => void;
   updateSettings: (patch: Partial<Settings>) => void;
 }
@@ -93,6 +97,7 @@ const Ctx = createContext<Store | null>(null);
 function authError(message: string): string {
   const m = message.toLowerCase();
   if (m.includes('invalid login credentials')) return 'That email and password don’t match. Try again or reset your password.';
+  if (m.includes('email') && m.includes('invalid')) return 'The email provider rejected this address. Use a real email address. For demo accounts, use password sign-in rather than an emailed code.';
   if (m.includes('email not confirmed')) return 'Confirm your email address first. Sign up again to get a new code.';
   if (m.includes('signups not allowed')) return 'We couldn’t find an account with that email.';
   if (m.includes('rate limit') || m.includes('security purposes')) return 'Too many attempts. Wait a minute and try again.';
@@ -546,8 +551,61 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     markAllNotificationsRead: (audience) => mutate((s) => ({ ...s, notifications: s.notifications.map((n) => (n.audience === audience && !n.read ? { ...n, read: true } : n)) })),
 
     // ---------------- admin ----------------
-    // Creating a login needs the secret key, so it has to run in a server function (not built yet).
-    inviteUser: (u) => setSyncError(`Couldn’t invite ${u.name}: staff invites need a server function that isn’t set up yet. Add them in Supabase → Authentication for now.`),
+    // Accounts use public sign-up; only the signed-in administrator can assign roles through RLS.
+    refreshUsers: async () => {
+      const data = await loadAll();
+      setNow({ ...stateRef.current, ...data });
+    },
+    saveUserRole: async (id, role, propertyIds, access) => {
+      if (me?.role !== 'super_admin') return { ok: false, error: 'Only a Super Admin can assign roles.' };
+      if (id === me.id) return { ok: false, error: 'Ask another Super Admin to change your own role.' };
+      try {
+        await writes.current;
+        const result = await supabase.from('profiles').update({ role, access }).eq('id', id).select('id').single();
+        if (result.error) throw result.error;
+        const removed = await supabase.from('profile_properties').delete().eq('profile_id', id);
+        if (removed.error) throw removed.error;
+        if (propertyIds.length && (role === 'manager' || role === 'caretaker')) {
+          const linked = await supabase.from('profile_properties').insert(propertyIds.map((property_id) => ({ profile_id: id, property_id })));
+          if (linked.error) throw linked.error;
+        }
+        const data = await loadAll();
+        setNow({ ...stateRef.current, ...data });
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: `Could not finish saving access. Reload and retry: ${e instanceof Error ? e.message : String((e as { message?: string }).message ?? e)}` };
+      }
+    },
+    createUser: async (input) => {
+      if (me?.role !== 'super_admin') return { ok: false, error: 'Only a Super Admin can create staff accounts.' };
+      const email = input.email.trim().toLowerCase();
+      if (stateRef.current.users.some((u) => u.email.toLowerCase() === email)) {
+        return { ok: false, error: 'This account already exists. Use Edit role and access instead.' };
+      }
+      const client = createSignupClient();
+      let created = false;
+      try {
+        const { data, error } = await client.auth.signUp({ email, password: input.password, options: { data: { name: input.name.trim() } } });
+        if (error) throw error;
+        if (!data.user || data.user.identities?.length === 0) throw new Error('This email already has an account. Refresh the list and edit its role.');
+        created = true;
+        const profile = await supabase.from('profiles').update({ name: input.name.trim(), role: input.role, access: input.access })
+          .eq('id', data.user.id).eq('email', email).select('id').single();
+        if (profile.error) throw profile.error;
+        if (input.propertyIds?.length && (input.role === 'manager' || input.role === 'caretaker')) {
+          const links = await supabase.from('profile_properties').insert(input.propertyIds.map((property_id) => ({ profile_id: data.user!.id, property_id })));
+          if (links.error) throw links.error;
+        }
+        const fresh = await loadAll();
+        setNow({ ...stateRef.current, ...fresh });
+        return { ok: true };
+      } catch (e) {
+        const message = authError(e instanceof Error ? e.message : String((e as { message?: string }).message ?? e));
+        return { ok: false, error: created ? `Account created, but setup is incomplete. Refresh users and edit its role and access. ${message}` : message };
+      } finally {
+        await client.auth.signOut({ scope: 'local' });
+      }
+    },
     updateUser: (id, patch) => mutate((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }), { action: 'Updated team member', record: stateRef.current.users.find((u) => u.id === id)?.name ?? '', area: 'Users' }),
     updateSettings: (patch) => mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }), { action: 'Updated organisation settings', record: '—', area: 'Users' }),
   }), [state, hydrated, me, myTenant, syncError, mutate, actorName, open, setNow]);
