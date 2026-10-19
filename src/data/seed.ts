@@ -38,13 +38,13 @@ export function buildSeed(): AppState {
 
   // ---------------- Users ----------------
   const users: User[] = [
-    { id: 'u-femi', name: 'Femi Adewale', email: 'femi@adewaleproperties.ng', phone: '+234 803 100 2201', password: 'demo1234', role: 'super_admin', access: 'All locations', twoStep: true, lastActive: at(0, 8, 40), status: 'active' },
-    { id: 'u-grace', name: 'Grace Uche', email: 'grace@adewaleproperties.ng', phone: '+234 809 330 1120', password: 'demo1234', role: 'manager', access: 'Lekki Phase 1, Ikoyi', propertyIds: ['prop-palm', 'prop-bourdillon'], twoStep: true, lastActive: at(0, 8, 28), status: 'active' },
-    { id: 'u-tobi', name: 'Tobi Lawal', email: 'tobi@adewaleproperties.ng', phone: '+234 802 114 7780', password: 'demo1234', role: 'manager', access: 'Yaba, Gbagada', propertyIds: ['prop-hm', 'prop-gbagada'], twoStep: true, lastActive: at(0, 7, 40), status: 'active' },
-    { id: 'u-musa', name: 'Musa Danjuma', email: 'musa@adewaleproperties.ng', phone: '+234 806 551 0932', password: 'demo1234', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-1, 17, 2), status: 'active' },
-    { id: 'u-rukayat', name: 'Rukayat Adebayo', email: 'accounts@adewaleproperties.ng', phone: '+234 805 771 2240', password: 'demo1234', role: 'accountant', access: 'All locations, read only', twoStep: false, lastActive: at(-1, 14, 22), status: 'active' },
-    { id: 'u-john', name: 'John Eze', email: 'john.eze@adewaleproperties.ng', phone: '+234 806 441 2031', password: 'demo1234', role: 'caretaker', access: 'Herbert Macaulay Flats', propertyIds: ['prop-hm'], twoStep: true, lastActive: at(-3, 10, 5), status: 'active' },
-    { id: 'u-bola', name: 'Bola Kuti', email: 'bola@adewaleproperties.ng', phone: '+234 807 223 4410', password: 'demo1234', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-2, 11, 10), status: 'invited' },
+    { id: 'u-femi', name: 'Femi Adewale', email: 'femi@adewaleproperties.ng', phone: '+234 803 100 2201', role: 'super_admin', access: 'All locations', twoStep: true, lastActive: at(0, 8, 40), status: 'active' },
+    { id: 'u-grace', name: 'Grace Uche', email: 'grace@adewaleproperties.ng', phone: '+234 809 330 1120', role: 'manager', access: 'Lekki Phase 1, Ikoyi', propertyIds: ['prop-palm', 'prop-bourdillon'], twoStep: true, lastActive: at(0, 8, 28), status: 'active' },
+    { id: 'u-tobi', name: 'Tobi Lawal', email: 'tobi@adewaleproperties.ng', phone: '+234 802 114 7780', role: 'manager', access: 'Yaba, Gbagada', propertyIds: ['prop-hm', 'prop-gbagada'], twoStep: true, lastActive: at(0, 7, 40), status: 'active' },
+    { id: 'u-musa', name: 'Musa Danjuma', email: 'musa@adewaleproperties.ng', phone: '+234 806 551 0932', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-1, 17, 2), status: 'active' },
+    { id: 'u-rukayat', name: 'Rukayat Adebayo', email: 'accounts@adewaleproperties.ng', phone: '+234 805 771 2240', role: 'accountant', access: 'All locations, read only', twoStep: false, lastActive: at(-1, 14, 22), status: 'active' },
+    { id: 'u-john', name: 'John Eze', email: 'john.eze@adewaleproperties.ng', phone: '+234 806 441 2031', role: 'caretaker', access: 'Herbert Macaulay Flats', propertyIds: ['prop-hm'], twoStep: true, lastActive: at(-3, 10, 5), status: 'active' },
+    { id: 'u-bola', name: 'Bola Kuti', email: 'bola@adewaleproperties.ng', phone: '+234 807 223 4410', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-2, 11, 10), status: 'invited' },
   ];
 
   // ---------------- Locations ----------------
@@ -174,6 +174,13 @@ export function buildSeed(): AppState {
   let leaseNo = 100;
   let tnNo = 150;
   const usedLease = new Set(named.map((n) => n.lease));
+  const usedTn = new Set(named.map((n) => n.tn));
+  const nextTenantCode = () => {
+    let code = '';
+    do { code = `TN-${String(tnNo++).padStart(5, '0')}`; } while (usedTn.has(code));
+    usedTn.add(code);
+    return code;
+  };
   const nextLeaseId = () => {
     let id = '';
     do { id = `LS-${String(leaseNo++).padStart(4, '0')}`; } while (usedLease.has(id));
@@ -186,7 +193,7 @@ export function buildSeed(): AppState {
     const female = n.gender ? n.gender === 'Female' : idx % 2 === 0;
     return {
       id: `ten-${idx + 1}`,
-      code: n.tn ?? `TN-${String(tnNo++).padStart(5, '0')}`,
+      code: n.tn ?? nextTenantCode(),
       name: n.name,
       email: n.email ?? `${fn.toLowerCase()}.${ln.toLowerCase()}@mail.com`,
       phone: n.phone ?? phone(),

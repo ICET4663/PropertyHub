@@ -1,16 +1,16 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import type {
   ActivityLog, Announcement, AppNotification, AppState, Block, Category, DocFile, Lease, Location,
   MaintenanceRequest, OnboardingDraft, Priority, Property, RequestEvent, RequestStatus, Role, Settings,
   Tenant, Unit, User, Vendor,
 } from '../types';
-import { buildSeed, STATE_VERSION } from '../data/seed';
+import { supabase } from '../lib/supabase';
+import { deviceLabel, emptyState, loadAll, nextCode, pushChanges } from '../lib/db';
 import { addDays, addMonths, fmtDate, leaseStatus, naira, toISODate, todayISO, uid } from '../utils';
 
-const STORAGE_KEY = 'propertyhub_state_v3';
-
-export type SignInResult = { ok: true; userId: string; needsTwoStep: boolean } | { ok: false; error: string };
+export type AuthResult = { ok: true } | { ok: false; error: string };
+/** What an emailed code is for. `signin` and `twoStep` both finish by signing in. */
+export type CodePurpose = 'signin' | 'twoStep' | 'signup' | 'reset';
 
 export interface NewPropertyInput {
   name: string; type: Property['type']; description: string; address: string; locationId: string; city: string; state: string;
@@ -24,21 +24,27 @@ export interface NewRequestInput {
 
 export interface RenewInput { start: string; end: string; rent: number; serviceCharge: number; notifyTenant: boolean; scheduleReminders: boolean }
 
+export interface SignUpInput { name: string; email: string; phone: string; password: string; invite: string }
+
 interface Store {
   state: AppState;
   hydrated: boolean;
   me: User | null;
   myTenant: Tenant | null;
+  /** Last failed server write, already rolled back. Shown as a toast, then cleared. */
+  syncError: string | null;
+  clearSyncError: () => void;
   // auth
-  checkCredentials: (email: string, password: string) => SignInResult;
-  startSession: (userId: string) => void;
-  signOut: () => void;
-  findAccount: (emailOrPhone: string) => User | null;
-  resetPassword: (userId: string, password: string) => void;
-  registerTenant: (input: { name: string; email: string; phone: string; password: string; invite: string }) => { ok: true; tenantId: string; userId: string } | { ok: false; error: string };
+  signIn: (email: string, password: string) => Promise<{ ok: true; needsTwoStep: boolean } | { ok: false; error: string }>;
+  signUp: (input: SignUpInput) => Promise<{ ok: true; needsCode: boolean } | { ok: false; error: string }>;
+  sendCode: (email: string, purpose: CodePurpose) => Promise<AuthResult>;
+  verifyCode: (email: string, code: string, purpose: CodePurpose) => Promise<AuthResult>;
+  updatePassword: (password: string) => Promise<AuthResult>;
+  /** Opens the app for an account that is signed in but still on the sign-up screens. */
+  enter: () => void;
+  signOut: () => Promise<void>;
   // global
   setLocationFilter: (id: string | null) => void;
-  resetDemo: () => void;
   // portfolio
   addLocation: (l: Omit<Location, 'id'>) => string;
   updateLocation: (id: string, patch: Partial<Location>) => void;
@@ -51,18 +57,18 @@ interface Store {
   // tenants & onboarding
   saveDraft: (d: OnboardingDraft) => void;
   discardDraft: (id: string) => void;
-  submitOnboarding: (d: OnboardingDraft, approveNow: boolean) => string;
+  submitOnboarding: (d: OnboardingDraft, approveNow: boolean) => Promise<string>;
   approveTenant: (tenantId: string) => void;
   updateTenant: (id: string, patch: Partial<Tenant>) => void;
   deactivateTenant: (id: string) => void;
   moveTenant: (id: string, unitId: string) => void;
   // leases
-  renewLease: (leaseId: string, input: RenewInput) => string;
+  renewLease: (leaseId: string, input: RenewInput) => Promise<string>;
   terminateLease: (leaseId: string) => void;
   sendLeaseReminder: (leaseIds: string[]) => number;
   setTenantIntent: (leaseId: string, intent: 'renew' | 'move_out') => void;
   // maintenance
-  createRequest: (input: NewRequestInput) => string;
+  createRequest: (input: NewRequestInput) => Promise<string>;
   assignVendor: (id: string, vendorId: string, visit: { date: string; window: string }, note: string, notifyVendor: boolean, tellTenant: boolean) => void;
   setRequestStatus: (id: string, status: RequestStatus) => void;
   setRequestPriority: (id: string, p: Priority) => void;
@@ -83,34 +89,79 @@ interface Store {
 
 const Ctx = createContext<Store | null>(null);
 
-export function StoreProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<AppState>(() => buildSeed());
-  const [hydrated, setHydrated] = useState(false);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+/** Supabase auth messages, in the app's voice. */
+function authError(message: string): string {
+  const m = message.toLowerCase();
+  if (m.includes('invalid login credentials')) return 'That email and password don’t match. Try again or reset your password.';
+  if (m.includes('email not confirmed')) return 'Confirm your email address first. Sign up again to get a new code.';
+  if (m.includes('signups not allowed')) return 'We couldn’t find an account with that email.';
+  if (m.includes('rate limit') || m.includes('security purposes')) return 'Too many attempts. Wait a minute and try again.';
+  if (m.includes('expired') || (m.includes('invalid') && m.includes('token'))) return 'That code isn’t right or has expired. Request a new one.';
+  if (m.includes('failed to fetch') || m.includes('network')) return 'Can’t reach the server. Check your connection and try again.';
+  return message;
+}
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const parsed = JSON.parse(raw) as AppState;
-          if (parsed.version === STATE_VERSION) setState(parsed);
-        }
-      } catch {
-        // fall back to fresh seed
-      }
-      setHydrated(true);
-    })();
+export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<AppState>(emptyState);
+  const [hydrated, setHydrated] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const stateRef = useRef(state); // kept current by setNow, the only way state changes
+  const writes = useRef<Promise<void>>(Promise.resolve());
+
+  const setNow = useCallback((next: AppState) => {
+    stateRef.current = next;
+    setState(next);
   }, []);
 
+  /**
+   * Loads what this account may see. Tenants are linked to their tenancy first (no-op once linked).
+   * `enter: false` loads the data but stays on the auth screens (used after sign-up).
+   */
+  const open = useCallback(async (userId: string, enter = true): Promise<AuthResult> => {
+    try {
+      const { data: profile, error } = await supabase.from('profiles').select('role, tenant_id, status').eq('id', userId).single();
+      if (error || !profile) throw new Error(error?.message ?? 'Your profile is missing. Contact your property manager.');
+      if (profile.status === 'suspended') {
+        await supabase.auth.signOut();
+        return { ok: false, error: 'This account has been suspended. Contact your administrator.' };
+      }
+      if (profile.role === 'tenant' && !profile.tenant_id) {
+        const { error: linkError } = await supabase.rpc('register_tenant');
+        if (linkError) throw new Error(linkError.message);
+      }
+      const data = await loadAll();
+      setNow({ ...data, sessionUserId: enter ? userId : null, locationFilter: null });
+      if (enter) {
+        void supabase.from('profiles').update({ last_active: new Date().toISOString() }).eq('id', userId).then(() => {});
+        const me = data.users.find((u) => u.id === userId);
+        if (me && me.role !== 'tenant') {
+          void supabase.from('activity_logs').insert({ user_name: me.name, actor_id: userId, action: 'Signed in', record: '—', area: 'Security', device: deviceLabel }).then(() => {});
+        }
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: authError(e instanceof Error ? e.message : String(e)) };
+    }
+  }, [setNow]);
+
+  // Restore a saved session on launch; clear everything when the session ends.
   useEffect(() => {
-    if (!hydrated) return;
-    const t = setTimeout(() => {
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)).catch(() => {});
-    }, 250);
-    return () => clearTimeout(t);
-  }, [state, hydrated]);
+    const { data } = supabase.auth.onAuthStateChange((event, session) => {
+      // Supabase calls this inside its auth lock, so defer any further Supabase calls.
+      if (event === 'INITIAL_SESSION') {
+        setTimeout(async () => {
+          if (session) {
+            const r = await open(session.user.id);
+            if (!r.ok) setSyncError(r.error);
+          }
+          setHydrated(true);
+        }, 0);
+      } else if (event === 'SIGNED_OUT') {
+        setNow(emptyState());
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, [open, setNow]);
 
   const me = state.sessionUserId ? state.users.find((u) => u.id === state.sessionUserId) ?? null : null;
   const myTenant = me?.tenantId ? state.tenants.find((t) => t.id === me.tenantId) ?? null : null;
@@ -120,86 +171,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System';
   }, []);
 
-  /** Apply a mutation and append an audit-log entry in one update. */
+  /**
+   * Apply a change on screen straight away, append an audit-log entry, and queue the server write.
+   * If the server rejects it, reload from the server (undoing the change) and report the error.
+   */
   const mutate = useCallback((fn: (s: AppState) => AppState, log?: { action: string; record: string; area: ActivityLog['area'] }) => {
-    setState((s) => {
-      const next = fn(s);
-      if (!log || next === s) return next;
-      const user = s.users.find((u) => u.id === s.sessionUserId);
-      const entry: ActivityLog = {
-        id: uid('lg'), at: new Date().toISOString(), user: user?.name ?? 'System', ...log,
-        device: user?.role === 'tenant' ? 'Tenant portal · Web' : '102.89.34.10 · Chrome, Windows',
-      };
-      return { ...next, logs: [entry, ...next.logs].slice(0, 600) };
-    });
-  }, []);
+    const prev = stateRef.current;
+    let next = fn(prev);
+    if (next === prev) return;
+    const user = prev.users.find((u) => u.id === prev.sessionUserId);
+    if (log) {
+      const entry: ActivityLog = { id: uid('lg'), at: new Date().toISOString(), user: user?.name ?? 'System', ...log, device: deviceLabel };
+      next = { ...next, logs: [entry, ...next.logs].slice(0, 600) };
+    }
+    setNow(next);
+    if (!user) return;
+    writes.current = writes.current
+      .then(() => pushChanges(prev, next, { id: user.id, role: user.role }))
+      .catch(async (e: unknown) => {
+        setSyncError(`Couldn’t save that change: ${e instanceof Error ? e.message : String(e)}`);
+        try {
+          const data = await loadAll();
+          setNow({ ...stateRef.current, ...data });
+        } catch {
+          // offline: keep what is on screen; the next successful load corrects it
+        }
+      });
+  }, [setNow]);
 
   const notify = (s: AppState, n: Omit<AppNotification, 'id' | 'at' | 'read'>): AppState => ({
     ...s,
     notifications: [{ ...n, id: uid('n'), at: new Date().toISOString(), read: false }, ...s.notifications],
   });
 
-  const nextNumber = (ids: string[], prefix: string, pad: number) => {
-    const max = ids.reduce((m, id) => Math.max(m, parseInt(id.replace(prefix, ''), 10) || 0), 0);
-    return `${prefix}${String(max + 1).padStart(pad, '0')}`;
-  };
-
   const store = useMemo<Store>(() => ({
-    state, hydrated, me, myTenant,
+    state, hydrated, me, myTenant, syncError,
+    clearSyncError: () => setSyncError(null),
 
     // ---------------- auth ----------------
-    checkCredentials: (email, password) => {
-      const q = email.trim().toLowerCase();
-      const u = stateRef.current.users.find((x) => x.email.toLowerCase() === q || x.phone.replace(/\s/g, '') === q.replace(/\s/g, ''));
-      if (!u) return { ok: false, error: 'We couldn’t find an account with that email or phone number.' };
-      if (u.password !== password) return { ok: false, error: 'That password isn’t right. Try again or reset it.' };
-      if (u.status === 'suspended') return { ok: false, error: 'This account has been suspended. Contact your administrator.' };
-      return { ok: true, userId: u.id, needsTwoStep: u.twoStep };
-    },
-    startSession: (userId) => mutate((s) => ({
-      ...s, sessionUserId: userId, locationFilter: null,
-      users: s.users.map((u) => (u.id === userId ? { ...u, lastActive: new Date().toISOString(), status: u.status === 'invited' ? 'active' : u.status } : u)),
-    }), { action: 'Signed in', record: '—', area: 'Security' }),
-    signOut: () => setState((s) => ({ ...s, sessionUserId: null })),
-    findAccount: (q) => {
-      const v = q.trim().toLowerCase().replace(/\s/g, '');
-      return stateRef.current.users.find((u) => u.email.toLowerCase() === v || u.phone.replace(/\s/g, '') === v) ?? null;
-    },
-    resetPassword: (userId, password) => setState((s) => ({ ...s, users: s.users.map((u) => (u.id === userId ? { ...u, password } : u)) })),
-    registerTenant: ({ name, email, phone, password, invite }) => {
-      const s = stateRef.current;
-      if (s.users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) return { ok: false, error: 'An account with this email already exists. Try signing in.' };
-      // Invite codes look like PALM-A4-7Q2: property prefix + unit code
-      let unit: Unit | undefined;
-      const m = invite.trim().toUpperCase().match(/^([A-Z]+)-([A-Z]\d+)/);
-      if (m) {
-        const prop = s.properties.find((p) => p.short.toUpperCase().replace(/[^A-Z]/g, '').startsWith(m[1]));
-        unit = prop ? s.units.find((u) => u.propertyId === prop.id && u.code === m[2]) : undefined;
+    signIn: async (email, password) => {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) return { ok: false, error: authError(error.message) };
+      const { data: profile } = await supabase.from('profiles').select('two_step').eq('id', data.user.id).single();
+      if (profile?.two_step) {
+        // Second step: the password was right; now prove access to the inbox with an emailed code.
+        await supabase.auth.signOut();
+        const sent = await supabase.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: false } });
+        if (sent.error) return { ok: false, error: authError(sent.error.message) };
+        return { ok: true, needsTwoStep: true };
       }
-      const tenantId = uid('ten');
-      const userId = uid('u');
-      const code = nextNumber(s.tenants.map((t) => t.code), 'TN-', 5);
-      const tenant: Tenant = {
-        id: tenantId, code, name: name.trim(), email: email.trim(), phone: phone.trim(), dob: '1990-01-01', gender: 'Female', address: '',
-        unitId: unit?.id, propertyId: unit?.propertyId, status: 'pending', onboarding: 'pending', selfSignup: true, joinedAt: todayISO(), language: 'English',
-        nextOfKin: { name: '', relationship: '', phone: '', address: '' },
-        employment: { status: 'Employed', employer: '', occupation: '', workAddress: '' },
-        identification: { type: 'National ID (NIN slip)', number: '', verified: false },
-        prefs: { smsUpdates: true, emailAnnouncements: true, whatsapp: false },
-      };
-      const user: User = { id: userId, name: tenant.name, email: tenant.email, phone: tenant.phone, password, role: 'tenant', access: 'Own tenancy', tenantId, twoStep: false, lastActive: new Date().toISOString(), status: 'active' };
-      mutate((st) => notify({ ...st, tenants: [tenant, ...st.tenants], users: [...st.users, user] }, {
-        audience: 'staff', category: 'Tenants', title: 'New tenant sign-up', body: `${tenant.name} registered${unit ? ` for ${s.properties.find((p) => p.id === unit!.propertyId)?.short} ${unit.code}` : ''} and is awaiting approval.`, meta: 'Tenants · Self sign-up', tone: 'purple', link: { name: 'tenant', params: { id: tenantId } },
-      }), { action: 'Registered via self sign-up', record: tenant.name, area: 'Tenants' });
-      return { ok: true, tenantId, userId };
+      const r = await open(data.user.id);
+      return r.ok ? { ok: true, needsTwoStep: false } : r;
+    },
+    signUp: async ({ name, email, phone, password, invite }) => {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(), password, options: { data: { name: name.trim(), phone: phone.trim(), invite: invite.trim().toUpperCase() } },
+      });
+      if (error) return { ok: false, error: authError(error.message) };
+      // With email confirmation on, an existing address comes back as a user with no identities.
+      if (data.user && data.user.identities?.length === 0) return { ok: false, error: 'An account with this email already exists. Try signing in.' };
+      if (data.session) {
+        const r = await open(data.session.user.id, false);
+        return r.ok ? { ok: true, needsCode: false } : r;
+      }
+      return { ok: true, needsCode: true };
+    },
+    sendCode: async (email, purpose) => {
+      const e = email.trim();
+      const { error } = purpose === 'signup'
+        ? await supabase.auth.resend({ type: 'signup', email: e })
+        : purpose === 'reset'
+          ? await supabase.auth.resetPasswordForEmail(e)
+          : await supabase.auth.signInWithOtp({ email: e, options: { shouldCreateUser: false } });
+      return error ? { ok: false, error: authError(error.message) } : { ok: true };
+    },
+    verifyCode: async (email, code, purpose) => {
+      const type = purpose === 'signup' ? 'signup' : purpose === 'reset' ? 'recovery' : 'email';
+      const { data, error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code, type });
+      if (error || !data.user) return { ok: false, error: authError(error?.message ?? 'That code isn’t right or has expired.') };
+      if (purpose === 'reset') return { ok: true }; // signed in just long enough to set a new password
+      return open(data.user.id, purpose !== 'signup');
+    },
+    updatePassword: async (password) => {
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) return { ok: false, error: authError(error.message) };
+      await supabase.auth.signOut({ scope: 'global' });
+      return { ok: true };
+    },
+    enter: () => {
+      void supabase.auth.getSession().then(({ data }) => {
+        if (data.session) setNow({ ...stateRef.current, sessionUserId: data.session.user.id });
+      });
+    },
+    signOut: async () => {
+      await supabase.auth.signOut();
+      setNow(emptyState());
     },
 
     // ---------------- global ----------------
-    setLocationFilter: (id) => setState((s) => ({ ...s, locationFilter: id })),
-    resetDemo: () => {
-      AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
-      setState({ ...buildSeed(), sessionUserId: stateRef.current.sessionUserId });
-    },
+    setLocationFilter: (id) => setNow({ ...stateRef.current, locationFilter: id }),
+
 
     // ---------------- portfolio ----------------
     addLocation: (l) => {
@@ -241,14 +312,13 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }), { action: patch.status ? `Marked unit as ${patch.status === 'maintenance' ? 'under maintenance' : patch.status}` : patch.rent ? `Changed rent to ${naira(patch.rent)}` : 'Updated unit', record: `Unit ${stateRef.current.units.find((u) => u.id === id)?.code}`, area: 'Properties' }),
 
     // ---------------- tenants ----------------
-    saveDraft: (d) => setState((s) => ({ ...s, drafts: [{ ...d, savedAt: new Date().toISOString() }, ...s.drafts.filter((x) => x.id !== d.id)] })),
-    discardDraft: (id) => setState((s) => ({ ...s, drafts: s.drafts.filter((d) => d.id !== id) })),
-    submitOnboarding: (d, approveNow) => {
+    saveDraft: (d) => mutate((s) => ({ ...s, drafts: [{ ...d, savedAt: new Date().toISOString() }, ...s.drafts.filter((x) => x.id !== d.id)] })),
+    discardDraft: (id) => mutate((s) => ({ ...s, drafts: s.drafts.filter((d) => d.id !== id) })),
+    submitOnboarding: async (d, approveNow) => {
+      const [code, leaseId] = await Promise.all([nextCode('tenant'), nextCode('lease')]);
       const s0 = stateRef.current;
       const unit = s0.units.find((u) => u.id === d.allocation.unitId)!;
       const tenantId = uid('ten');
-      const code = nextNumber(s0.tenants.map((t) => t.code), 'TN-', 5);
-      const leaseId = nextNumber(s0.leases.map((l) => l.id), 'LS-', 4);
       const tenant: Tenant = {
         id: tenantId, code, name: d.personal.name, email: d.personal.email, phone: d.personal.phone, dob: d.personal.dob, gender: d.personal.gender,
         address: d.personal.address, unitId: unit.id, propertyId: unit.propertyId, status: approveNow ? 'active' : 'pending', onboarding: approveNow ? 'approved' : 'pending',
@@ -262,31 +332,34 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         deposit: unit.deposit, termMonths: months, noticeMonths: 3, paymentCycle: 'Annually, in advance', createdBy: actorName(),
         agreement: `${leaseId}-tenancy-agreement.pdf`, signed: d.lease.agreementUploaded, draft: !approveNow, reminders: [],
       };
-      const userId = uid('u');
-      const user: User = { id: userId, name: tenant.name, email: tenant.email, phone: tenant.phone, password: 'demo1234', role: 'tenant', access: 'Own tenancy', tenantId, twoStep: false, lastActive: new Date().toISOString(), status: 'invited' };
+      // No login is created here: the tenant signs up with this email and is linked to this record (register_tenant).
       const prop = s0.properties.find((p) => p.id === unit.propertyId)!;
       mutate((s) => notify({
         ...s,
         tenants: [tenant, ...s.tenants],
         leases: [lease, ...s.leases],
-        users: [...s.users, user],
         units: approveNow ? s.units.map((u) => (u.id === unit.id ? { ...u, status: 'occupied' as const, vacantSince: undefined } : u)) : s.units,
         drafts: s.drafts.filter((x) => x.id !== d.id),
         payments: approveNow ? [{ id: uid('pay'), tenantId, leaseId, label: 'Rent + service charge', amount: unit.rent + unit.serviceCharge, date: d.lease.start, method: 'Bank transfer', status: 'pending' as const }, ...s.payments] : s.payments,
       }, approveNow
-        ? { audience: 'staff', category: 'Tenants', title: 'Onboarding complete', body: `${tenant.name} was approved for ${prop.short} ${unit.code}. Portal invite sent.`, meta: 'Tenants', tone: 'success', link: { name: 'tenant', params: { id: tenantId } } }
+        ? { audience: 'staff', category: 'Tenants', title: 'Onboarding complete', body: `${tenant.name} was approved for ${prop.short} ${unit.code}. They can sign up for the tenant portal with ${tenant.email}.`, meta: 'Tenants', tone: 'success', link: { name: 'tenant', params: { id: tenantId } } }
         : { audience: 'staff', category: 'Tenants', title: 'Tenant awaiting approval', body: `${tenant.name} completed onboarding for ${prop.short} ${unit.code}.`, meta: 'Tenants · Approval', tone: 'purple', link: { name: 'tenant', params: { id: tenantId } } }),
       { action: approveNow ? 'Approved new tenant' : 'Submitted tenant for approval', record: tenant.name, area: 'Tenants' });
       return tenantId;
     },
-    approveTenant: (tenantId) => mutate((s) => {
+    approveTenant: (tenantId) => {
+      // A tenant without a lease gets a 12-month one, which needs a code from the server first.
+      const s0 = stateRef.current;
+      const t0 = s0.tenants.find((x) => x.id === tenantId);
+      const needsLease = !!t0?.unitId && !s0.leases.some((l) => l.tenantId === tenantId);
+      (needsLease ? nextCode('lease') : Promise.resolve('')).then((newLeaseId) => mutate((s) => {
       const t = s.tenants.find((x) => x.id === tenantId);
       if (!t) return s;
       const hasLease = s.leases.some((l) => l.tenantId === tenantId);
       const unit = s.units.find((u) => u.id === t.unitId);
       let leases = s.leases.map((l) => (l.tenantId === tenantId && l.draft ? { ...l, draft: false } : l));
-      if (!hasLease && unit) {
-        const id = nextNumber(s.leases.map((l) => l.id), 'LS-', 4);
+      if (!hasLease && unit && newLeaseId) {
+        const id = newLeaseId;
         const start = todayISO();
         const end = toISODate(addDays(addMonths(new Date(), 12), -1));
         leases = [{ id, tenantId, unitId: unit.id, propertyId: unit.propertyId, start, end, rent: unit.rent, serviceCharge: unit.serviceCharge, deposit: unit.deposit, termMonths: 12, noticeMonths: 3, paymentCycle: 'Annually, in advance', createdBy: s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System', agreement: `${id}-tenancy-agreement.pdf`, signed: false, reminders: [] }, ...leases];
@@ -297,7 +370,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         tenants: s.tenants.map((x) => (x.id === tenantId ? { ...x, status: 'active' as const, onboarding: 'approved' as const, identification: { ...x.identification, verified: true } } : x)),
         units: unit ? s.units.map((u) => (u.id === unit.id ? { ...u, status: 'occupied' as const, vacantSince: undefined } : u)) : s.units,
       }, { audience: tenantId, category: 'Tenants', title: 'Your account is approved.', body: 'Welcome to PropertyHub. Your lease and home details are now available.', meta: 'Account', tone: 'success' });
-    }, { action: 'Approved tenant application', record: stateRef.current.tenants.find((t) => t.id === tenantId)?.name ?? '', area: 'Tenants' }),
+    }, { action: 'Approved tenant application', record: t0?.name ?? '', area: 'Tenants' }))
+        .catch((e: unknown) => setSyncError(`Couldn’t approve the tenant: ${e instanceof Error ? e.message : String(e)}`));
+    },
     updateTenant: (id, patch) => mutate((s) => ({
       ...s,
       tenants: s.tenants.map((t) => (t.id === id ? { ...t, ...patch } : t)),
@@ -327,9 +402,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, { action: 'Moved tenant to a new unit', record: stateRef.current.tenants.find((t) => t.id === id)?.name ?? '', area: 'Tenants' }),
 
     // ---------------- leases ----------------
-    renewLease: (leaseId, input) => {
-      const s0 = stateRef.current;
-      const newId = nextNumber(s0.leases.map((l) => l.id), 'LS-', 4);
+    renewLease: async (leaseId, input) => {
+      const newId = await nextCode('lease');
       mutate((s) => {
         const old = s.leases.find((l) => l.id === leaseId);
         if (!old) return s;
@@ -384,9 +458,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, { action: intent === 'renew' ? 'Tenant confirmed intent to renew' : 'Tenant gave notice to move out', record: leaseId, area: 'Leases' }),
 
     // ---------------- maintenance ----------------
-    createRequest: (input) => {
+    createRequest: async (input) => {
+      const id = await nextCode('request');
       const s0 = stateRef.current;
-      const id = nextNumber(s0.requests.map((r) => r.id), 'MR-', 4);
       const t = s0.tenants.find((x) => x.id === input.tenantId)!;
       const unit = s0.units.find((u) => u.id === t.unitId)!;
       const priority: Priority = input.urgency === 'urgent' ? 'urgent' : input.urgency === 'medium' ? 'medium' : 'low';
@@ -468,14 +542,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       return { ...s, announcements: [ann, ...s.announcements], notifications: [...notifs, ...s.notifications] };
     }, { action: a.status === 'scheduled' ? 'Scheduled announcement' : a.status === 'template' ? 'Saved announcement template' : 'Sent announcement', record: a.subject, area: 'Communications' }),
     addDocument: (d) => mutate((s) => ({ ...s, documents: [{ ...d, id: uid('doc'), date: todayISO(), uploadedBy: s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System' }, ...s.documents] }), { action: 'Uploaded document', record: d.name, area: 'Properties' }),
-    markNotificationRead: (id) => setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.id === id ? { ...n, read: true } : n)) })),
-    markAllNotificationsRead: (audience) => setState((s) => ({ ...s, notifications: s.notifications.map((n) => (n.audience === audience ? { ...n, read: true } : n)) })),
+    markNotificationRead: (id) => mutate((s) => ({ ...s, notifications: s.notifications.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n)) })),
+    markAllNotificationsRead: (audience) => mutate((s) => ({ ...s, notifications: s.notifications.map((n) => (n.audience === audience && !n.read ? { ...n, read: true } : n)) })),
 
     // ---------------- admin ----------------
-    inviteUser: (u) => mutate((s) => ({ ...s, users: [...s.users, { id: uid('u'), name: u.name, email: u.email, phone: '', password: 'demo1234', role: u.role, access: u.access, propertyIds: u.propertyIds, twoStep: false, lastActive: new Date().toISOString(), status: 'invited' }] }), { action: `Invited ${u.name}`, record: u.access, area: 'Users' }),
+    // Creating a login needs the secret key, so it has to run in a server function (not built yet).
+    inviteUser: (u) => setSyncError(`Couldn’t invite ${u.name}: staff invites need a server function that isn’t set up yet. Add them in Supabase → Authentication for now.`),
     updateUser: (id, patch) => mutate((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }), { action: 'Updated team member', record: stateRef.current.users.find((u) => u.id === id)?.name ?? '', area: 'Users' }),
     updateSettings: (patch) => mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }), { action: 'Updated organisation settings', record: '—', area: 'Users' }),
-  }), [state, hydrated, me, myTenant, mutate, actorName]);
+  }), [state, hydrated, me, myTenant, syncError, mutate, actorName, open, setNow]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

@@ -213,7 +213,12 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const tenants = scope.tenants.filter((t) => t.status === 'active');
   return (
     <Dialog open={open} onClose={onClose} title="New maintenance request" subtitle="Log an issue on behalf of a tenant."
-      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Create request" disabled={!tenantId || !title.trim()} onPress={() => { const id = createRequest({ tenantId, category, title: title.trim(), description: desc.trim() || title.trim(), where: 'Flat', urgency, photos: 0, caretakerAccess: false, access: 'Contact tenant to arrange' }); toast(`${id} created`); onClose(); navigate('request', { id }); }} /></>}>
+      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Create request" disabled={!tenantId || !title.trim()} onPress={async () => {
+        try {
+          const id = await createRequest({ tenantId, category, title: title.trim(), description: desc.trim() || title.trim(), where: 'Flat', urgency, photos: 0, caretakerAccess: false, access: 'Contact tenant to arrange' });
+          toast(`${id} created`); onClose(); navigate('request', { id });
+        } catch (e) { toast(`Couldn’t create the request: ${e instanceof Error ? e.message : e}`, 'danger'); }
+      }} /></>}>
       <View style={{ gap: 14 }}>
         <Select label="Tenant" required value={tenantId} onChange={setTenantId} options={tenants.map((t) => ({ value: t.id, label: t.name, sub: `${lookup.property(t.propertyId)?.short} · ${lookup.unit(t.unitId)?.code}` }))} />
         <Select label="Category" required value={category} onChange={setCategory} options={[...ALL_CATEGORIES, 'Other' as Category].map((c) => ({ value: c, label: c }))} />

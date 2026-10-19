@@ -466,9 +466,10 @@ export function OnboardingScreen() {
   const save = () => { saveDraft(d); setSaved(new Date().toISOString()); toast('Draft saved'); };
   const submit = (approve: boolean) => {
     for (let s = 1; s <= 6; s++) { const e = validate(s); if (Object.keys(e).length) { setErrors(e); setD((x) => ({ ...x, step: s })); toast('Some details are missing', 'danger'); return; } }
-    const id = submitOnboarding(d, approve);
-    toast(approve ? `${d.personal.name} approved — portal invite sent` : `Sent to the landlord for approval`);
-    navigate('tenant', { id });
+    submitOnboarding(d, approve).then((id) => {
+      toast(approve ? `${d.personal.name} approved` : `Sent to the landlord for approval`);
+      navigate('tenant', { id });
+    }, (e: unknown) => toast(`Couldn’t save the tenant: ${e instanceof Error ? e.message : e}`, 'danger'));
   };
 
   const unit = lookup.unit(d.allocation.unitId);

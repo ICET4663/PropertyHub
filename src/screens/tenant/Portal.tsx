@@ -361,16 +361,20 @@ export function ReportIssueScreen() {
   if (!t) return null;
   if (t.status !== 'active') return <Page><PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'Report an issue' }]} title="Report an issue" /><PendingNotice /></Page>;
 
-  const submit = () => {
+  const submit = async () => {
     const e: Record<string, string> = {};
     if (!cat) e.cat = 'Choose what the problem is.';
     if (!title.trim()) e.title = 'Give it a short title.';
     if (desc.trim().length < 10) e.desc = 'Tell us a little more so the repairer comes prepared.';
     setErrors(e);
     if (Object.keys(e).length) return;
-    const id = createRequest({ tenantId: t.id, category: cat!, title: title.trim(), description: desc.trim(), where, urgency, photos, caretakerAccess: caretaker, access: times });
-    toast(`Request ${id} sent to your manager`);
-    navigate('myRequests', { id });
+    try {
+      const id = await createRequest({ tenantId: t.id, category: cat!, title: title.trim(), description: desc.trim(), where, urgency, photos, caretakerAccess: caretaker, access: times });
+      toast(`Request ${id} sent to your manager`);
+      navigate('myRequests', { id });
+    } catch (e) {
+      toast(`Couldn’t send your request: ${e instanceof Error ? e.message : e}`, 'danger');
+    }
   };
 
   const section = (n: number, label: string) => <T size={13} weight="semibold" style={{ marginBottom: 10 }}>{n}. {label}</T>;

@@ -1,23 +1,21 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowLeft, Check, CircleCheck, KeyRound, Lock, Mail, Phone, RefreshCw, ShieldCheck, Smartphone, Circle, Info } from 'lucide-react-native';
+import { ArrowLeft, Check, CircleCheck, KeyRound, Lock, Mail, RefreshCw, ShieldCheck, Circle } from 'lucide-react-native';
 import { colors, font, radius, useBreakpoint } from '../theme';
-import { useStore } from '../store/AppContext';
+import { useStore, type CodePurpose } from '../store/AppContext';
 import { useRouter } from '../nav/router';
-import { Badge, Button, Checkbox, Input, Link, Notice, RadioCard, T, Touch, useToast, IconTile } from '../components/ui';
+import { Badge, Button, Checkbox, Input, Link, Notice, T, Touch, useToast, IconTile } from '../components/ui';
 import { Brand } from '../components/shell';
 import { CityScape } from '../components/art';
-import { maskEmail, maskPhone, passwordScore } from '../utils';
+import { maskEmail, passwordScore } from '../utils';
 
 // ---------------------------------------------------------------- flow state shared across auth screens
 
 interface Flow {
-  pendingUserId?: string; // passed password, awaiting 2FA
-  signup?: { tenantId: string; userId: string; name: string; email: string; phone: string };
-  resetUserId?: string;
-  codeMode?: 'signup' | 'reset' | 'otp';
-  otpUserId?: string;
+  email?: string; // where the current code was sent
+  codeMode?: CodePurpose;
+  signup?: { name: string; email: string; phone: string };
 }
 const FlowCtx = createContext<{ flow: Flow; setFlow: (f: Partial<Flow>) => void }>({ flow: {}, setFlow: () => {} });
 export function AuthFlowProvider({ children }: { children: React.ReactNode }) {
@@ -26,7 +24,9 @@ export function AuthFlowProvider({ children }: { children: React.ReactNode }) {
 }
 const useFlow = () => useContext(FlowCtx);
 
-export const DEMO_CODE = '481093';
+/** Digits in an emailed code. Must match Supabase → Authentication → Providers → Email → "Email OTP length". */
+const CODE_LENGTH = 6;
+const isEmail = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
 
 // ---------------------------------------------------------------- layout
 
@@ -35,7 +35,8 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   const { bp, height } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const managed = state.units.length;
-  const chips = [`${state.locations.length} locations`, `${state.blocks.length} blocks`, `${managed} units managed`];
+  // Portfolio counts are only readable once signed in (row level security), so signed-out visitors see none.
+  const chips = managed ? [`${state.locations.length} locations`, `${state.blocks.length} blocks`, `${managed} units managed`] : [];
   const headline = variant === 'tenant' ? 'Your home, handled in a few taps.' : 'Every block, unit and tenant — visible at a glance.';
   const body = variant === 'tenant'
     ? 'Check your lease, report an issue and follow every repair from submission to sign-off.'
@@ -153,50 +154,43 @@ function CodeInput({ value, onChange, length = 6, error }: { value: string; onCh
   );
 }
 
-function DemoHint({ children }: { children: React.ReactNode }) {
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.accentSoft, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8, marginTop: 14 }}>
-      <Info size={14} color={colors.accentDeep} />
-      <T size={12} color={colors.accentDeep} style={{ flex: 1 }}>{children}</T>
-    </View>
-  );
-}
-
 // ---------------------------------------------------------------- Sign in
 
+// Seeded by `npm run db:seed` (password demo1234). Their emails don't receive mail, so two-step can't be used with them.
 const DEMO_ACCOUNTS = [
-  { email: 'femi@adewaleproperties.ng', label: 'Femi Adewale', role: 'Super Admin · two-step on' },
+  { email: 'femi@adewaleproperties.ng', label: 'Femi Adewale', role: 'Super Admin' },
   { email: 'grace@adewaleproperties.ng', label: 'Grace Uche', role: 'Property Manager' },
   { email: 'chidinma.okafor@mail.com', label: 'Chidinma Okafor', role: 'Tenant' },
 ];
 
 export function SignInScreen() {
-  const { checkCredentials, startSession, findAccount } = useStore();
+  const { signIn, sendCode } = useStore();
   const { navigate } = useRouter();
   const { setFlow } = useFlow();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [keep, setKeep] = useState(true);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState<'password' | 'code' | null>(null);
 
-  const submit = () => {
+  const submit = async () => {
     setError('');
-    if (!email.trim() || !password) { setError('Enter your email or phone number and password.'); return; }
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      const r = checkCredentials(email, password);
-      if (!r.ok) { setError(r.error); return; }
-      if (r.needsTwoStep) { setFlow({ pendingUserId: r.userId }); navigate('twoStep'); return; }
-      startSession(r.userId);
-    }, 450);
+    if (!email.trim() || !password) { setError('Enter your email address and password.'); return; }
+    setLoading('password');
+    const r = await signIn(email, password);
+    setLoading(null);
+    if (!r.ok) { setError(r.error); return; }
+    if (r.needsTwoStep) { setFlow({ email: email.trim(), codeMode: 'twoStep' }); navigate('twoStep'); }
+    // otherwise the store has opened the app for this role
   };
 
-  const otp = () => {
-    const u = findAccount(email);
-    if (!u) { setError('Enter the email or phone number on your account first.'); return; }
-    setFlow({ codeMode: 'otp', otpUserId: u.id });
+  const otp = async () => {
+    setError('');
+    if (!isEmail(email)) { setError('Enter the email address on your account first.'); return; }
+    setLoading('code');
+    const r = await sendCode(email, 'signin');
+    setLoading(null);
+    if (!r.ok) { setError(r.error); return; }
+    setFlow({ email: email.trim(), codeMode: 'signin' });
     navigate('verifyCode');
   };
 
@@ -204,15 +198,14 @@ export function SignInScreen() {
     <AuthLayout top={<><View /><T size={12.5} color={colors.subtext}>New tenant? <Link size={12.5} onPress={() => navigate('signUp')}>Create an account</Link></T></>}>
       <Heading title="Welcome back" body="Sign in to manage your properties or your tenancy. We'll take you to the right workspace for your role." />
       <View style={{ gap: 16 }}>
-        <Input label="Email or phone number" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" onSubmitEditing={submit} />
+        <Input label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" onSubmitEditing={submit} />
         <Input label="Password" value={password} onChangeText={setPassword} secure placeholder="Enter your password" labelRight={<Link size={12} onPress={() => navigate('forgot')}>Forgot password?</Link>} onSubmitEditing={submit} autoComplete="password" />
-        <Checkbox checked={keep} onChange={setKeep} label="Keep me signed in on this device" />
         {error ? <Notice tone="danger">{error}</Notice> : null}
-        <Button title="Sign in" onPress={submit} loading={loading} size="lg" />
+        <Button title="Sign in" onPress={submit} loading={loading === 'password'} disabled={!!loading} size="lg" />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} /><T size={12} color={colors.faint}>or</T><View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
         </View>
-        <Button title="Sign in with a one-time code" icon={Smartphone} variant="secondary" size="lg" onPress={otp} />
+        <Button title="Email me a sign-in code" icon={Mail} variant="secondary" size="lg" onPress={otp} loading={loading === 'code'} disabled={!!loading} />
         <Notice tone="info" icon={ShieldCheck}>Landlords, property managers and tenants all sign in here. Access is limited to what your role allows.</Notice>
       </View>
       <View style={{ marginTop: 22, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, padding: 12 }}>
@@ -231,34 +224,37 @@ export function SignInScreen() {
 // ---------------------------------------------------------------- Tenant sign up
 
 export function SignUpScreen() {
-  const { registerTenant } = useStore();
+  const { signUp } = useStore();
   const { navigate } = useRouter();
   const { setFlow } = useFlow();
   const [f, setF] = useState({ name: '', email: '', phone: '', invite: '', password: '' });
   const [agree, setAgree] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
   const score = passwordScore(f.password);
   const set = (k: keyof typeof f) => (v: string) => setF((s) => ({ ...s, [k]: v }));
 
-  const submit = () => {
+  const submit = async () => {
     const e: Record<string, string> = {};
     if (f.name.trim().split(' ').length < 2) e.name = 'Enter your first and last name.';
-    if (!/^\S+@\S+\.\S+$/.test(f.email.trim())) e.email = 'Enter a valid email address.';
+    if (!isEmail(f.email)) e.email = 'Enter a valid email address.';
     if (f.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number.';
     if (f.password.length < 8 || !/\d/.test(f.password) || !/[^A-Za-z0-9]/.test(f.password)) e.password = 'Use at least 8 characters with a number and a symbol.';
     if (!agree) e.agree = 'Please accept the terms to continue.';
     setErrors(e);
     if (Object.keys(e).length) return;
-    const r = registerTenant(f);
+    setLoading(true);
+    const r = await signUp(f);
+    setLoading(false);
     if (!r.ok) { setErrors({ email: r.error }); return; }
-    setFlow({ signup: { tenantId: r.tenantId, userId: r.userId, name: f.name, email: f.email, phone: f.phone }, codeMode: 'signup' });
-    navigate('verify');
+    setFlow({ signup: { name: f.name, email: f.email.trim(), phone: f.phone }, email: f.email.trim(), codeMode: 'signup' });
+    navigate(r.needsCode ? 'verifyCode' : 'accountReady');
   };
 
   const strength = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'][score];
   return (
     <AuthLayout variant="tenant" top={<><BackLink label="Back to sign in" /><T size={12} color={colors.subtext}>Step 1 of 2</T></>}>
-      <Heading title="Create your tenant account" body="Use the email or phone number your landlord has on file so we can link you to your unit." />
+      <Heading title="Create your tenant account" body="Use the email your landlord has on file so we can link you to your unit." />
       <View style={{ gap: 14 }}>
         <Input label="Full name" value={f.name} onChangeText={set('name')} placeholder="e.g. Chidinma Okafor" error={errors.name} autoComplete="name" />
         <View style={{ flexDirection: 'row', gap: 12, flexWrap: 'wrap' }}>
@@ -276,73 +272,60 @@ export function SignUpScreen() {
         </View>
         <Checkbox checked={agree} onChange={setAgree} label={<T size={12.5} color={colors.textSoft}>I agree to the PropertyHub <T size={12.5} weight="semibold" color={colors.primary}>Terms</T> and <T size={12.5} weight="semibold" color={colors.primary}>Privacy Policy</T></T>} />
         {errors.agree ? <T size={11.5} color={colors.danger}>{errors.agree}</T> : null}
-        <Button title="Create account" onPress={submit} size="lg" />
+        <Button title="Create account" onPress={submit} loading={loading} size="lg" />
         <T size={12} color={colors.subtext} center>Your account is reviewed by your property manager before full access is granted.</T>
       </View>
     </AuthLayout>
   );
 }
 
-// ---------------------------------------------------------------- Verify contact details
+// ---------------------------------------------------------------- Enter an emailed code (sign-up, sign-in, password reset)
 
-export function VerifyScreen() {
-  const { flow, setFlow } = useFlow();
-  const { navigate } = useRouter();
-  const s = flow.signup;
-  if (!s) return <MissingFlow />;
-  return (
-    <AuthLayout variant="tenant" top={<><View /><T size={12} color={colors.subtext}>Step 2 of 2</T></>}>
-      <Heading icon={Mail} title="Verify your contact details" body="We need to confirm both so you receive lease reminders and repair updates." />
-      <View style={{ gap: 10 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 13 }}>
-          <IconTile icon={Check} tone="success" size={30} />
-          <View style={{ flex: 1 }}><T size={13} weight="semibold">Email address</T><T size={12} color={colors.subtext}>{s.email}</T></View>
-          <Badge label="Verified" tone="success" dot />
-        </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: colors.primary, borderRadius: radius.md, padding: 13 }}>
-          <IconTile icon={Phone} tone="accent" size={30} />
-          <View style={{ flex: 1 }}><T size={13} weight="semibold">Phone number</T><T size={12} color={colors.subtext}>{s.phone}</T></View>
-          <Badge label="Pending" tone="warning" dot />
-        </View>
-        <Button title="Send code to my phone" size="lg" style={{ marginTop: 12 }} onPress={() => { setFlow({ codeMode: 'signup' }); navigate('verifyCode'); }} />
-        <T size={12.5} color={colors.subtext} center style={{ marginTop: 6 }}>Wrong number? <Link size={12.5} onPress={() => navigate('signUp')}>Edit contact details</Link></T>
-      </View>
-    </AuthLayout>
-  );
+function useResendTimer(seconds = 60) {
+  const [secs, setSecs] = useState(seconds);
+  useEffect(() => { const t = setInterval(() => setSecs((x) => Math.max(0, x - 1)), 1000); return () => clearInterval(t); }, []);
+  return { secs, restart: () => setSecs(seconds) };
 }
 
-// ---------------------------------------------------------------- Enter code
-
 export function VerifyCodeScreen() {
-  const { flow, setFlow } = useFlow();
-  const { state, startSession } = useStore();
+  const { flow } = useFlow();
+  const { verifyCode, sendCode } = useStore();
   const { navigate, back } = useRouter();
   const toast = useToast();
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
-  const [secs, setSecs] = useState(42);
-  useEffect(() => { const t = setInterval(() => setSecs((x) => Math.max(0, x - 1)), 1000); return () => clearInterval(t); }, []);
-  const mode = flow.codeMode ?? 'signup';
-  const phone = mode === 'signup' ? flow.signup?.phone : state.users.find((u) => u.id === (mode === 'reset' ? flow.resetUserId : flow.otpUserId))?.phone;
-  if (!phone) return <MissingFlow />;
-  const verify = () => {
-    if (code.length < 6) { setError('Enter all 6 digits.'); return; }
-    if (code !== DEMO_CODE) { setError('That code isn’t right. Check the SMS and try again.'); return; }
+  const [loading, setLoading] = useState(false);
+  const timer = useResendTimer();
+  const mode = flow.codeMode;
+  const email = flow.email;
+  if (!email || !mode || mode === 'twoStep') return <MissingFlow />;
+
+  const verify = async () => {
+    if (code.length < CODE_LENGTH) { setError(`Enter all ${CODE_LENGTH} digits.`); return; }
+    setLoading(true);
+    const r = await verifyCode(email, code, mode);
+    setLoading(false);
+    if (!r.ok) { setError(r.error); return; }
     if (mode === 'signup') navigate('accountReady');
     else if (mode === 'reset') navigate('reset');
-    else { startSession(flow.otpUserId!); setFlow({ otpUserId: undefined }); }
+    // signin: the store has opened the app
   };
+  const resend = async () => {
+    const r = await sendCode(email, mode);
+    if (!r.ok) { toast(r.error, 'danger'); return; }
+    timer.restart();
+    toast('A new code is on its way.');
+  };
+
   return (
-    <AuthLayout variant={mode === 'signup' ? 'tenant' : 'staff'} top={<BackLink label="Back" onPress={() => back('signIn')} />}>
-      <Heading icon={Smartphone} title="Enter the 6-digit code" body={<T size={13.5} color={colors.subtext} style={{ marginTop: 6, lineHeight: 20 }}>We sent a code by SMS to <T size={13.5} weight="semibold" color={colors.text}>{maskPhone(phone)}</T>. It expires in 10 minutes.</T>} />
-      <CodeInput value={code} onChange={(v) => { setCode(v); setError(''); }} error={!!error} />
+    <AuthLayout variant={mode === 'signup' ? 'tenant' : 'staff'} top={<><BackLink label="Back" onPress={() => back('signIn')} />{mode === 'signup' ? <T size={12} color={colors.subtext}>Step 2 of 2</T> : <View />}</>}>
+      <Heading icon={Mail} title={mode === 'signup' ? 'Verify your email' : `Enter the ${CODE_LENGTH}-digit code`} body={<T size={13.5} color={colors.subtext} style={{ marginTop: 6, lineHeight: 20 }}>We emailed a code to <T size={13.5} weight="semibold" color={colors.text}>{maskEmail(email)}</T>. Check your spam folder if it isn’t there in a minute.</T>} />
+      <CodeInput length={CODE_LENGTH} value={code} onChange={(v) => { setCode(v); setError(''); }} error={!!error} />
       {error ? <T size={12} color={colors.danger} style={{ marginTop: 8 }}>{error}</T> : null}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 }}>
-        <T size={12.5} color={colors.subtext}>Didn't get it? {secs > 0 ? <T size={12.5} weight="semibold" color={colors.text}>Resend in 00:{String(secs).padStart(2, '0')}</T> : <Link size={12.5} onPress={() => { setSecs(42); toast('A new code is on its way.'); }}>Resend code</Link>}</T>
-        <Link size={12.5} onPress={() => toast('We’ll call you shortly with your code.', 'info')}>Call me instead</Link>
+        <T size={12.5} color={colors.subtext}>Didn’t get it? {timer.secs > 0 ? <T size={12.5} weight="semibold" color={colors.text}>Resend in 00:{String(timer.secs).padStart(2, '0')}</T> : <Link size={12.5} onPress={resend}>Resend code</Link>}</T>
       </View>
-      <Button title="Verify and continue" size="lg" style={{ marginTop: 22 }} onPress={verify} />
-      <DemoHint>Demo: use code {DEMO_CODE}</DemoHint>
+      <Button title="Verify and continue" size="lg" style={{ marginTop: 22 }} onPress={verify} loading={loading} />
     </AuthLayout>
   );
 }
@@ -351,16 +334,20 @@ export function VerifyCodeScreen() {
 
 export function AccountReadyScreen() {
   const { flow } = useFlow();
-  const { state, startSession } = useStore();
+  const { state, enter } = useStore();
   const s = flow.signup;
   if (!s) return <MissingFlow />;
-  const t = state.tenants.find((x) => x.id === s.tenantId);
+  // Not "entered" yet, but the data this tenant may see is already loaded, so their record is the one with this email.
+  const t = state.tenants.find((x) => x.email.toLowerCase() === s.email.toLowerCase());
   const unit = state.units.find((u) => u.id === t?.unitId);
   const prop = state.properties.find((p) => p.id === unit?.propertyId);
   const block = state.blocks.find((b) => b.id === unit?.blockId);
+  const approved = t?.status === 'active';
   return (
     <AuthLayout variant="tenant">
-      <Heading center icon={Check} tone="success" title="Your account is ready" body={`Welcome to PropertyHub, ${s.name.split(' ')[0]}. Your property manager will confirm your tenancy details shortly — we'll notify you once it's approved.`} />
+      <Heading center icon={Check} tone="success" title="Your account is ready" body={approved
+        ? `Welcome to PropertyHub, ${s.name.split(' ')[0]}. We found your tenancy, so everything is ready for you.`
+        : `Welcome to PropertyHub, ${s.name.split(' ')[0]}. Your property manager will confirm your tenancy details shortly — we'll notify you once it's approved.`} />
       <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 14, gap: 11 }}>
         {[
           ['Linked unit', unit && prop ? `${prop.short} · ${block?.name} · Flat ${unit.code}` : 'Not linked yet'],
@@ -371,10 +358,10 @@ export function AccountReadyScreen() {
           </View>
         ))}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <T size={12.5} color={colors.subtext}>Approval</T><Badge label="Awaiting manager" tone="warning" dot />
+          <T size={12.5} color={colors.subtext}>Approval</T>{approved ? <Badge label="Approved" tone="success" dot /> : <Badge label="Awaiting manager" tone="warning" dot />}
         </View>
       </View>
-      <Button title="Go to my dashboard" size="lg" style={{ marginTop: 20 }} onPress={() => startSession(s.userId)} />
+      <Button title="Go to my dashboard" size="lg" style={{ marginTop: 20 }} onPress={enter} />
     </AuthLayout>
   );
 }
@@ -382,41 +369,27 @@ export function AccountReadyScreen() {
 // ---------------------------------------------------------------- Forgot password
 
 export function ForgotScreen() {
-  const { findAccount } = useStore();
+  const { sendCode } = useStore();
   const { navigate } = useRouter();
   const { setFlow } = useFlow();
-  const [q, setQ] = useState('');
-  const [via, setVia] = useState<'email' | 'sms'>('email');
+  const [email, setEmail] = useState('');
   const [error, setError] = useState('');
-  const [sent, setSent] = useState(false);
-  const user = q.trim().length > 3 ? findAccount(q) : null;
-  const send = () => {
-    if (!user) { setError('We couldn’t find an account with that email or phone number.'); return; }
-    setFlow({ resetUserId: user.id, codeMode: 'reset' });
-    if (via === 'sms') navigate('verifyCode');
-    else setSent(true);
+  const [loading, setLoading] = useState(false);
+  const send = async () => {
+    if (!isEmail(email)) { setError('Enter the email address on your account.'); return; }
+    setLoading(true);
+    const r = await sendCode(email, 'reset');
+    setLoading(false);
+    if (!r.ok) { setError(r.error); return; }
+    setFlow({ email: email.trim(), codeMode: 'reset' });
+    navigate('verifyCode');
   };
-  if (sent && user) {
-    return (
-      <AuthLayout top={<BackLink label="Back to sign in" />}>
-        <Heading icon={Mail} title="Check your email" body={<T size={13.5} color={colors.subtext} style={{ marginTop: 6, lineHeight: 20 }}>We sent a secure reset link to <T size={13.5} weight="semibold" color={colors.text}>{maskEmail(user.email)}</T>. The link expires in 30 minutes.</T>} />
-        <Button title="Open reset link" size="lg" onPress={() => navigate('reset')} />
-        <Button title="Send it again" variant="ghost" style={{ marginTop: 8 }} onPress={() => setSent(false)} />
-        <DemoHint>Demo: the reset link opens right here in the app.</DemoHint>
-      </AuthLayout>
-    );
-  }
   return (
     <AuthLayout top={<BackLink label="Back to sign in" />}>
-      <Heading icon={Lock} title="Forgot your password?" body="Enter the email or phone number linked to your account and we'll send you a secure reset link or code." />
+      <Heading icon={Lock} title="Forgot your password?" body="Enter the email address on your account and we'll email you a code to set a new password." />
       <View style={{ gap: 16 }}>
-        <Input label="Email or phone number" value={q} onChangeText={(v) => { setQ(v); setError(''); }} placeholder="you@example.com" autoCapitalize="none" error={error} />
-        <View style={{ gap: 8 }}>
-          <T size={12.5} weight="semibold" color={colors.textSoft}>Send reset via</T>
-          <RadioCard selected={via === 'email'} onPress={() => setVia('email')} title="Email link" sub={user ? maskEmail(user.email) : 'To the email on your account'} />
-          <RadioCard selected={via === 'sms'} onPress={() => setVia('sms')} title="SMS code" sub={user ? maskPhone(user.phone) : 'To the phone on your account'} />
-        </View>
-        <Button title={via === 'email' ? 'Send reset link' : 'Send reset code'} size="lg" onPress={send} />
+        <Input label="Email address" value={email} onChangeText={(v) => { setEmail(v); setError(''); }} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" error={error} onSubmitEditing={send} />
+        <Button title="Send reset code" size="lg" onPress={send} loading={loading} />
         <T size={12.5} color={colors.subtext} center>Remembered it? <Link size={12.5} onPress={() => navigate('signIn')}>Sign in</Link></T>
       </View>
     </AuthLayout>
@@ -427,12 +400,14 @@ export function ForgotScreen() {
 
 export function ResetScreen() {
   const { flow } = useFlow();
-  const { resetPassword } = useStore();
+  const { updatePassword } = useStore();
   const { navigate } = useRouter();
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [tried, setTried] = useState(false);
-  if (!flow.resetUserId) return <MissingFlow />;
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  if (flow.codeMode !== 'reset') return <MissingFlow />;
   const rules = [
     { ok: pw.length >= 8, label: 'At least 8 characters' },
     { ok: /[a-z]/.test(pw) && /[A-Z]/.test(pw), label: 'Upper and lower case letters' },
@@ -440,10 +415,13 @@ export function ResetScreen() {
     { ok: !!pw && pw === pw2, label: 'Both passwords match' },
   ];
   const mismatch = pw2.length > 0 && pw !== pw2;
-  const submit = () => {
+  const submit = async () => {
     setTried(true);
     if (!rules.every((r) => r.ok)) return;
-    resetPassword(flow.resetUserId!, pw);
+    setLoading(true);
+    const r = await updatePassword(pw);
+    setLoading(false);
+    if (!r.ok) { setError(r.error); return; }
     navigate('resetDone');
   };
   return (
@@ -460,7 +438,8 @@ export function ResetScreen() {
             </View>
           ))}
         </View>
-        <Button title="Reset password" size="lg" onPress={submit} />
+        {error ? <Notice tone="danger">{error}</Notice> : null}
+        <Button title="Reset password" size="lg" onPress={submit} loading={loading} />
       </View>
     </AuthLayout>
   );
@@ -468,12 +447,10 @@ export function ResetScreen() {
 
 export function ResetDoneScreen() {
   const { navigate } = useRouter();
-  const toast = useToast();
   return (
     <AuthLayout>
-      <Heading center icon={Lock} tone="success" title="Password updated" body="Your password was changed successfully. For your security, you've been signed out of all other devices." />
+      <Heading center icon={Lock} tone="success" title="Password updated" body="Your password was changed and you've been signed out on every device. Sign in again with your new password." />
       <Button title="Back to sign in" size="lg" onPress={() => navigate('signIn')} />
-      <T size={12.5} color={colors.subtext} center style={{ marginTop: 14 }}>Didn't make this change? <Link size={12.5} onPress={() => toast('Support has been notified and will contact you.', 'info')}>Contact support</Link></T>
     </AuthLayout>
   );
 }
@@ -482,33 +459,35 @@ export function ResetDoneScreen() {
 
 export function TwoStepScreen() {
   const { flow, setFlow } = useFlow();
-  const { startSession } = useStore();
+  const { verifyCode, sendCode } = useStore();
   const { navigate } = useRouter();
   const toast = useToast();
   const [code, setCode] = useState('');
-  const [trust, setTrust] = useState(true);
   const [error, setError] = useState('');
-  if (!flow.pendingUserId) return <MissingFlow />;
-  const verify = () => {
-    if (code.length < 6) { setError('Enter the 6-digit code from your authenticator app.'); return; }
-    if (code !== DEMO_CODE) { setError('That code isn’t right. Codes refresh every 30 seconds.'); return; }
-    const id = flow.pendingUserId!;
-    setFlow({ pendingUserId: undefined });
-    startSession(id);
+  const [loading, setLoading] = useState(false);
+  const timer = useResendTimer();
+  const email = flow.email;
+  if (!email || flow.codeMode !== 'twoStep') return <MissingFlow />;
+  const verify = async () => {
+    if (code.length < CODE_LENGTH) { setError(`Enter the ${CODE_LENGTH}-digit code from your email.`); return; }
+    setLoading(true);
+    const r = await verifyCode(email, code, 'twoStep');
+    setLoading(false);
+    if (!r.ok) setError(r.error);
+  };
+  const resend = async () => {
+    const r = await sendCode(email, 'twoStep');
+    if (!r.ok) { toast(r.error, 'danger'); return; }
+    timer.restart();
+    toast('A new code is on its way.');
   };
   return (
-    <AuthLayout top={<><BackLink label="Use a different account" onPress={() => { setFlow({ pendingUserId: undefined }); navigate('signIn'); }} /><Badge label="Optional · recommended for admins" tone="success" size="sm" /></>}>
-      <Heading icon={ShieldCheck} title="Two-step verification" body="Your account can see every tenant record. Confirm it's you with the code from your authenticator app." />
-      <CodeInput value={code} onChange={(v) => { setCode(v); setError(''); }} error={!!error} />
+    <AuthLayout top={<><BackLink label="Use a different account" onPress={() => { setFlow({ email: undefined, codeMode: undefined }); navigate('signIn'); }} /><Badge label="Two-step is on for this account" tone="success" size="sm" /></>}>
+      <Heading icon={ShieldCheck} title="Two-step verification" body={<T size={13.5} color={colors.subtext} style={{ marginTop: 6, lineHeight: 20 }}>Your password was right. To finish signing in, enter the code we emailed to <T size={13.5} weight="semibold" color={colors.text}>{maskEmail(email)}</T>.</T>} />
+      <CodeInput length={CODE_LENGTH} value={code} onChange={(v) => { setCode(v); setError(''); }} error={!!error} />
       {error ? <T size={12} color={colors.danger} style={{ marginTop: 8 }}>{error}</T> : null}
-      <Checkbox checked={trust} onChange={setTrust} label="Trust this device for 30 days" style={{ marginTop: 16 }} />
-      <Button title="Verify and sign in" size="lg" style={{ marginTop: 18 }} onPress={verify} />
-      <T size={12.5} color={colors.subtext} style={{ marginTop: 18 }}>Can't use your authenticator?</T>
-      <View style={{ flexDirection: 'row', gap: 16, marginTop: 4 }}>
-        <Link size={12.5} onPress={() => toast('We sent a code by SMS to your phone.')}>Send code by SMS</Link>
-        <Link size={12.5} onPress={() => toast('Enter one of your saved backup codes instead.', 'info')}>Use a backup code</Link>
-      </View>
-      <DemoHint>Demo: use code {DEMO_CODE}</DemoHint>
+      <Button title="Verify and sign in" size="lg" style={{ marginTop: 18 }} onPress={verify} loading={loading} />
+      <T size={12.5} color={colors.subtext} style={{ marginTop: 18 }}>Didn’t get it? {timer.secs > 0 ? <T size={12.5} weight="semibold" color={colors.text}>Resend in 00:{String(timer.secs).padStart(2, '0')}</T> : <Link size={12.5} onPress={resend}>Resend code</Link>}</T>
     </AuthLayout>
   );
 }

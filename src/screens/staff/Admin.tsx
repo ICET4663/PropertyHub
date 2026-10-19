@@ -554,7 +554,7 @@ export function UsersScreen() {
         ]} />
       </Card>
       {confirm.node}
-      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onInvite={(u) => { inviteUser(u); toast(`Invite sent to ${u.email}`); setInviteOpen(false); }} />
+      <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onInvite={(u) => { inviteUser(u); setInviteOpen(false); }} />
     </Page>
   );
 }
@@ -629,7 +629,7 @@ export function ActivityLogsScreen() {
 // ---------------------------------------------------------------- Settings
 
 export function SettingsScreen() {
-  const { state, updateSettings, resetDemo } = useStore();
+  const { state, updateSettings } = useStore();
   const toast = useToast();
   const confirm = useConfirm();
   const { bp } = useBreakpoint();
@@ -721,10 +721,6 @@ export function SettingsScreen() {
           {section === 'lease' || section === 'integrations' ? (
             <Card><EmptyState icon={section === 'lease' ? FileText : Plug} title={section === 'lease' ? 'Lease templates' : 'Integrations'} body={section === 'lease' ? 'Upload your standard tenancy agreement so new leases and renewals start from it.' : 'Payments, e-signature and accounting integrations arrive in Phase 2.'} action={section === 'lease' ? <Button title="Upload template" icon={Upload} variant="secondary" onPress={() => toast('Template uploaded')} /> : undefined} /></Card>
           ) : null}
-          <Card>
-            <CardHeader title="Demo data" subtitle="Restore the sample portfolio. Everything you changed in this browser is replaced." />
-            <Button title="Reset demo data" icon={RotateCcw} variant="dangerGhost" style={{ alignSelf: 'flex-start' }} onPress={() => confirm.ask({ title: 'Reset demo data?', body: 'All properties, tenants, leases and requests go back to the original sample data.', confirm: 'Reset', danger: true, onConfirm: () => { resetDemo(); toast('Demo data restored'); } })} />
-          </Card>
         </View>
       </View>
       {confirm.node}

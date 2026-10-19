@@ -1,5 +1,5 @@
 import 'react-native-gesture-handler';
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -8,7 +8,7 @@ import {
 } from '@expo-google-fonts/plus-jakarta-sans';
 import { StoreProvider, useStore } from './src/store/AppContext';
 import { RouterProvider } from './src/nav/router';
-import { ToastProvider } from './src/components/ui';
+import { ToastProvider, useToast } from './src/components/ui';
 import { AuthFlowProvider } from './src/screens/auth';
 import { AppRoutes } from './src/screens';
 import { colors } from './src/theme';
@@ -18,6 +18,18 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const style = document.createElement('style');
   style.textContent = `html,body,#root{height:100%;background:${colors.bg}} *{-webkit-tap-highlight-color:transparent} ::-webkit-scrollbar{width:10px;height:10px} ::-webkit-scrollbar-thumb{background:#d6d2c7;border-radius:10px;border:3px solid transparent;background-clip:content-box}`;
   document.head.appendChild(style);
+}
+
+/** Shows server write failures (the store has already undone them). */
+function SyncErrors() {
+  const { syncError, clearSyncError } = useStore();
+  const toast = useToast();
+  useEffect(() => {
+    if (!syncError) return;
+    toast(syncError, 'danger');
+    clearSyncError();
+  }, [syncError, clearSyncError, toast]);
+  return null;
 }
 
 function Root() {
@@ -45,6 +57,7 @@ export default function App() {
       <StoreProvider>
         <ToastProvider>
           <StatusBar style="dark" />
+          <SyncErrors />
           <Root />
         </ToastProvider>
       </StoreProvider>

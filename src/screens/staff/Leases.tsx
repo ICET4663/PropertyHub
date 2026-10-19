@@ -288,9 +288,10 @@ export function RenewLeaseScreen({ id }: { id: string }) {
 
   const confirmRenewal = () => {
     if (end <= start) { toast('The end date must be after the start date', 'danger'); setStep(3); return; }
-    const newId = renewLease(l.id, { start, end, rent: newRent, serviceCharge: l.serviceCharge, notifyTenant: notify, scheduleReminders: schedule });
-    toast(`${newId} created — ${t.name.split(' ')[0]} has been notified`);
-    navigate('lease', { id: newId });
+    renewLease(l.id, { start, end, rent: newRent, serviceCharge: l.serviceCharge, notifyTenant: notify, scheduleReminders: schedule }).then((newId) => {
+      toast(notify ? `${newId} created — ${t.name.split(' ')[0]} has been notified` : `${newId} created`);
+      navigate('lease', { id: newId });
+    }, (e: unknown) => toast(`Couldn’t renew the lease: ${e instanceof Error ? e.message : e}`, 'danger'));
   };
 
   const row = (k: string, a: string, b?: React.ReactNode) => (

@@ -5,7 +5,6 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  password: string;
   role: Role;
   access: string; // human label e.g. "All locations"
   propertyIds?: string[]; // scope for managers / caretakers

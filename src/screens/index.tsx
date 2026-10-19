@@ -20,7 +20,6 @@ import {
 const AUTH: Record<string, React.ComponentType> = {
   signIn: Auth.SignInScreen,
   signUp: Auth.SignUpScreen,
-  verify: Auth.VerifyScreen,
   verifyCode: Auth.VerifyCodeScreen,
   accountReady: Auth.AccountReadyScreen,
   forgot: Auth.ForgotScreen,
