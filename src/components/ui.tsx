@@ -1,10 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput,
+  ActivityIndicator, Animated, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput,
   TextInputProps, TextStyle, View, ViewStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
-import { Check, ChevronDown, Eye, EyeOff, X, CircleCheck, TriangleAlert, Info } from 'lucide-react-native';
+import { Check, ChevronDown, Eye, EyeOff, X, CircleCheck, TriangleAlert, Info, Phone } from 'lucide-react-native';
 import { AVATAR_TONES, colors, font, radius, shadow, useBreakpoint } from '../theme';
 import { hashIndex, initials } from '../utils';
 
@@ -45,18 +46,23 @@ export function Link({ children, onPress, size = 13, color = colors.primary, wei
 
 // ---------------------------------------------------------------- Pressable w/ hover
 
+// On web, a Pressable with role "button" renders a <button>, and <button> cannot nest.
+// Inner Touches (e.g. an action button inside a pressable card) drop the role so they render as a <div>.
+const InsideTouch = createContext(false);
+
 export function Touch({ onPress, style, hoverStyle, children, disabled, accessibilityLabel }: {
   onPress?: () => void; style?: StyleProp<ViewStyle>; hoverStyle?: StyleProp<ViewStyle>; children: React.ReactNode; disabled?: boolean; accessibilityLabel?: string;
 }) {
+  const nested = useContext(InsideTouch);
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      accessibilityRole="button"
+      accessibilityRole={nested && Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={accessibilityLabel}
       style={(s: any) => [style, s.hovered && !disabled && hoverStyle, s.pressed && !disabled && { opacity: 0.85 }]}
     >
-      {children}
+      <InsideTouch.Provider value>{children}</InsideTouch.Provider>
     </Pressable>
   );
 }
@@ -99,6 +105,18 @@ export function Button({ title, onPress, variant = 'primary', icon: Icon, iconRi
   );
 }
 
+/** Opens the phone dialler. Renders nothing without a number. */
+export function CallButton({ phone, name, compact }: { phone?: string; name: string; compact?: boolean }) {
+  const digits = phone?.replace(/[^\d+]/g, '');
+  if (!digits) return null;
+  const call = () => { void Linking.openURL(`tel:${digits}`).catch(() => {}); };
+  return compact
+    ? <IconButton icon={Phone} onPress={call} bordered size={40} color={colors.primary} accessibilityLabel={`Call ${name}`} />
+    : <Touch onPress={call} accessibilityLabel={`Call ${name}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: 40, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.primarySoft }}>
+      <Phone size={15} color={colors.primary} strokeWidth={2} /><T size={13.5} weight="semibold" color={colors.primary}>Call</T>
+    </Touch>;
+}
+
 export function IconButton({ icon: Icon, onPress, badge, size = 38, color = colors.textSoft, bordered, accessibilityLabel }: {
   icon: LucideIcon; onPress?: () => void; badge?: number; size?: number; color?: string; bordered?: boolean; accessibilityLabel?: string;
 }) {
@@ -129,12 +147,13 @@ export function Card({ children, style, pad = 20, onPress, tint }: { children: R
 
 export function CardHeader({ title, subtitle, right, style }: { title: string; subtitle?: string; right?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }, style]}>
-      <View style={{ flex: 1 }}>
+    <View style={[{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }, style]}>
+      {/* Keeps the title readable on phones: long right-hand content wraps below it instead of squeezing it. */}
+      <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 160 }}>
         <T size={15.5} weight="semibold">{title}</T>
         {subtitle ? <T size={12.5} color={colors.subtext} style={{ marginTop: 2 }}>{subtitle}</T> : null}
       </View>
-      {right}
+      {right ? <View style={{ flexShrink: 1 }}>{right}</View> : null}
     </View>
   );
 }
@@ -287,7 +306,7 @@ export function RadioCard({ selected, onPress, title, sub, icon: Icon, right, st
 }
 
 export function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
-  const anim = useRef(new Animated.Value(value ? 1 : 0)).current;
+  const [anim] = useState(() => new Animated.Value(value ? 1 : 0));
   useEffect(() => { Animated.timing(anim, { toValue: value ? 1 : 0, duration: 160, useNativeDriver: false }).start(); }, [value, anim]);
   return (
     <Pressable onPress={() => onChange(!value)} accessibilityRole="switch" accessibilityState={{ checked: value }}>
@@ -337,19 +356,19 @@ export function Select<V extends string>({ value, options, onChange, placeholder
   value: V | '' | null | undefined; options: Option<V>[]; onChange: (v: V) => void; placeholder?: string; label?: string; required?: boolean; error?: string; hint?: string;
   style?: StyleProp<ViewStyle>; compact?: boolean; prefix?: string; fieldStyle?: StyleProp<ViewStyle>; optional?: boolean; disabled?: boolean;
 }) {
-  const a = useAnchor();
+  const { ref, anchor, open, close, isOpen } = useAnchor();
   const sel = options.find((o) => o.value === value);
   return (
     <Field label={label} required={required} error={error} hint={hint} style={fieldStyle} optional={optional}>
-      <View ref={a.ref} collapsable={false}>
-        <Touch disabled={disabled} onPress={a.open} style={[styles.input, compact && { height: 38 }, a.isOpen && styles.inputFocus, !!error && { borderColor: colors.danger }, disabled && { backgroundColor: colors.cardAlt }, style]} hoverStyle={{ borderColor: colors.borderStrong }}>
+      <View ref={ref} collapsable={false}>
+        <Touch disabled={disabled} onPress={open} style={[styles.input, compact && { height: 38 }, isOpen && styles.inputFocus, !!error && { borderColor: colors.danger }, disabled && { backgroundColor: colors.cardAlt }, style]} hoverStyle={{ borderColor: colors.borderStrong }}>
           <T size={13.5} color={sel ? colors.text : colors.faint} numberOfLines={1} style={{ flex: 1 }}>{prefix ? `${prefix}${sel?.label ?? placeholder}` : sel?.label ?? placeholder}</T>
           <ChevronDown size={15} color={colors.subtext} />
         </Touch>
       </View>
-      <Popover open={a.isOpen} anchor={a.anchor} onClose={a.close}>
+      <Popover open={isOpen} anchor={anchor} onClose={close}>
         {options.map((o) => (
-          <Touch key={o.value} onPress={() => { onChange(o.value); a.close(); }} style={styles.menuItem} hoverStyle={{ backgroundColor: colors.cardAlt }}>
+          <Touch key={o.value} onPress={() => { onChange(o.value); close(); }} style={styles.menuItem} hoverStyle={{ backgroundColor: colors.cardAlt }}>
             <View style={{ flex: 1 }}>
               <T size={13.5} weight={o.value === value ? 'semibold' : 'regular'}>{o.label}</T>
               {o.sub ? <T size={11.5} color={colors.subtext}>{o.sub}</T> : null}
@@ -365,14 +384,14 @@ export function Select<V extends string>({ value, options, onChange, placeholder
 export interface MenuItem { label: string; icon?: LucideIcon; onPress: () => void; danger?: boolean; section?: string }
 
 export function Menu({ trigger, items, width = 220, align = 'right', header }: { trigger: (open: () => void) => React.ReactNode; items: MenuItem[]; width?: number; align?: 'left' | 'right'; header?: string }) {
-  const a = useAnchor();
+  const { ref, anchor, open, close, isOpen } = useAnchor();
   return (
     <>
-      <View ref={a.ref} collapsable={false}>{trigger(a.open)}</View>
-      <Popover open={a.isOpen} anchor={a.anchor} onClose={a.close} width={width} align={align}>
+      <View ref={ref} collapsable={false}>{trigger(open)}</View>
+      <Popover open={isOpen} anchor={anchor} onClose={close} width={width} align={align}>
         {header ? <T size={10.5} weight="bold" color={colors.faint} upper style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }}>{header}</T> : null}
         {items.map((it, i) => (
-          <Touch key={i} onPress={() => { a.close(); setTimeout(it.onPress, 0); }} style={styles.menuItem} hoverStyle={{ backgroundColor: it.danger ? colors.dangerSoft : colors.cardAlt }}>
+          <Touch key={i} onPress={() => { close(); setTimeout(it.onPress, 0); }} style={styles.menuItem} hoverStyle={{ backgroundColor: it.danger ? colors.dangerSoft : colors.cardAlt }}>
             {it.icon ? <it.icon size={15} color={it.danger ? colors.danger : colors.textSoft} strokeWidth={1.8} /> : null}
             <T size={13} color={it.danger ? colors.danger : colors.text} weight="medium">{it.label}</T>
           </Touch>
@@ -384,7 +403,7 @@ export function Menu({ trigger, items, width = 220, align = 'right', header }: {
 
 // ---------------------------------------------------------------- Tabs & segmented
 
-export function Tabs<V extends string>({ tabs, value, onChange, style }: { tabs: Array<{ value: V; label: string; count?: number | string }>; value: V; onChange: (v: V) => void; style?: StyleProp<ViewStyle> }) {
+export function Tabs<V extends string>({ tabs, value, onChange, style }: { tabs: { value: V; label: string; count?: number | string }[]; value: V; onChange: (v: V) => void; style?: StyleProp<ViewStyle> }) {
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[{ borderBottomWidth: 1, borderBottomColor: colors.border, flexGrow: 0 }, style]} contentContainerStyle={{ gap: 22 }}>
       {tabs.map((t) => {
@@ -400,7 +419,7 @@ export function Tabs<V extends string>({ tabs, value, onChange, style }: { tabs:
   );
 }
 
-export function Segmented<V extends string>({ options, value, onChange, size = 'md' }: { options: Array<{ value: V; label: string; icon?: LucideIcon; count?: number }>; value: V; onChange: (v: V) => void; size?: 'sm' | 'md' }) {
+export function Segmented<V extends string>({ options, value, onChange, size = 'md' }: { options: { value: V; label: string; icon?: LucideIcon; count?: number }[]; value: V; onChange: (v: V) => void; size?: 'sm' | 'md' }) {
   return (
     <View style={{ flexDirection: 'row', backgroundColor: colors.neutralSoft, borderRadius: radius.md, padding: 3, alignSelf: 'flex-start', flexWrap: 'wrap' }}>
       {options.map((o) => {
@@ -436,7 +455,7 @@ export function ProgressBar({ value, color = colors.primary, track = colors.neut
   );
 }
 
-export function SegmentBar({ segments, height = 8, style }: { segments: Array<{ value: number; color: string }>; height?: number; style?: StyleProp<ViewStyle> }) {
+export function SegmentBar({ segments, height = 8, style }: { segments: { value: number; color: string }[]; height?: number; style?: StyleProp<ViewStyle> }) {
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
   return (
     <View style={[{ flexDirection: 'row', height, gap: 2 }, style]}>
@@ -447,7 +466,7 @@ export function SegmentBar({ segments, height = 8, style }: { segments: Array<{ 
   );
 }
 
-export function Legend({ items, style }: { items: Array<{ label: string; color: string; value?: string | number }>; style?: StyleProp<ViewStyle> }) {
+export function Legend({ items, style }: { items: { label: string; color: string; value?: string | number }[]; style?: StyleProp<ViewStyle> }) {
   return (
     <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, style]}>
       {items.map((i) => (
@@ -463,7 +482,7 @@ export function Legend({ items, style }: { items: Array<{ label: string; color: 
 // ---------------------------------------------------------------- Layout helpers
 
 /** Responsive grid: `cols` per breakpoint, optional per-child spans. */
-export function Grid({ cols, gap = 16, children, spans, style }: { cols: { mobile: number; tablet?: number; desktop?: number }; gap?: number; children: React.ReactNode; spans?: Array<{ mobile?: number; tablet?: number; desktop?: number } | number>; style?: StyleProp<ViewStyle> }) {
+export function Grid({ cols, gap = 16, children, spans, style }: { cols: { mobile: number; tablet?: number; desktop?: number }; gap?: number; children: React.ReactNode; spans?: ({ mobile?: number; tablet?: number; desktop?: number } | number)[]; style?: StyleProp<ViewStyle> }) {
   const { bp } = useBreakpoint();
   const n = bp === 'desktop' ? cols.desktop ?? cols.tablet ?? cols.mobile : bp === 'tablet' ? cols.tablet ?? cols.mobile : cols.mobile;
   const kids = React.Children.toArray(children).filter(Boolean);
@@ -512,14 +531,18 @@ export function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIc
 export function Notice({ tone = 'info', icon, children, title, action, style }: { tone?: Tone; icon?: LucideIcon; children?: React.ReactNode; title?: string; action?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   const [bg, fg] = toneColors[tone];
   const Icon = icon ?? (tone === 'danger' || tone === 'warning' ? TriangleAlert : tone === 'success' ? CircleCheck : Info);
+  // On phones the buttons go under the message so the text keeps the full width.
+  const { isMobile } = useBreakpoint();
+  const stacked = isMobile && !!action;
   return (
-    <View style={[{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: bg, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 11, borderWidth: 1, borderColor: fg + '26' }, style]}>
-      <Icon size={16} color={fg} strokeWidth={2} />
+    <View style={[{ flexDirection: 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 10, backgroundColor: bg, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 11, borderWidth: 1, borderColor: fg + '26' }, style]}>
+      <Icon size={16} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
       <View style={{ flex: 1 }}>
         {title ? <T size={13} weight="semibold" color={tone === 'info' ? colors.text : fg}>{title}</T> : null}
         {typeof children === 'string' ? <T size={12.5} color={colors.textSoft}>{children}</T> : children}
+        {stacked ? <View style={{ marginTop: 10, alignItems: 'flex-start' }}>{action}</View> : null}
       </View>
-      {action}
+      {stacked ? null : action}
     </View>
   );
 }
@@ -528,10 +551,11 @@ export function Notice({ tone = 'info', icon, children, title, action, style }: 
 
 export function Dialog({ open, onClose, title, subtitle, children, footer, width = 520 }: { open: boolean; onClose: () => void; title: string; subtitle?: string; children: React.ReactNode; footer?: React.ReactNode; width?: number }) {
   const { isMobile, height } = useBreakpoint();
+  const insets = useSafeAreaInsets();
   return (
     <Modal transparent visible={open} animationType={isMobile ? 'slide' : 'fade'} onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: isMobile ? 'flex-end' : 'center', alignItems: 'center', padding: isMobile ? 0 : 24 }}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: isMobile ? 'flex-end' : 'center', alignItems: 'center', padding: isMobile ? 0 : 24 }}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.dialog, isMobile ? { width: '100%', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, maxHeight: height * 0.92 } : { width, maxHeight: height - 48 }]}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: 20, paddingBottom: 12, gap: 12 }}>
             <View style={{ flex: 1 }}>
@@ -540,10 +564,10 @@ export function Dialog({ open, onClose, title, subtitle, children, footer, width
             </View>
             <IconButton icon={X} onPress={onClose} size={32} accessibilityLabel="Close" />
           </View>
-          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-          {footer ? <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, padding: 16, borderTopWidth: 1, borderTopColor: colors.border }}>{footer}</View> : null}
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 + (isMobile && !footer ? insets.bottom : 0) }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+          {footer ? <View style={{ flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10, padding: 16, paddingBottom: 16 + (isMobile ? insets.bottom : 0), borderTopWidth: 1, borderTopColor: colors.border }}>{footer}</View> : null}
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

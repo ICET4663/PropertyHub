@@ -1,11 +1,17 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState as RNAppState, Platform } from 'react-native';
 import type {
   ActivityLog, Announcement, AppNotification, AppState, Block, Category, DocFile, Lease, Location,
-  MaintenanceRequest, OnboardingDraft, Priority, Property, RequestEvent, RequestStatus, Role, Settings,
+  MaintenanceRequest, OnboardingDraft, PaystackStatus, Priority, Property, Role, Settings,
   Tenant, Unit, User, Vendor,
 } from '../types';
 import { supabase, createSignupClient } from '../lib/supabase';
-import { deviceLabel, emptyState, loadAll, nextCode, pushChanges } from '../lib/db';
+import { deviceLabel, emptyState, loadAll, loadNotifications, loadPayments, loadRequest, loadRequests, nextCode, pushChanges, rpc } from '../lib/db';
+import { checkPayment as confirmPayment, openCheckout } from '../lib/payments';
+import { TRANSITION_TO, type Transition } from '../lib/workflow';
+import { kindOf, removeFiles, uploadFile, type PickedFile } from '../lib/files';
+import { cacheable, clearCache, isNetworkError, readCache, saveCache } from '../lib/cache';
+import { unregisterPush } from '../lib/push';
 import { addDays, addMonths, fmtDate, leaseStatus, naira, toISODate, todayISO, uid } from '../utils';
 
 export type AuthResult = { ok: true } | { ok: false; error: string };
@@ -19,8 +25,19 @@ export interface NewPropertyInput {
 
 export interface NewRequestInput {
   tenantId: string; category: Category; title: string; description: string; where: string;
-  urgency: 'low' | 'medium' | 'urgent'; photos: number; caretakerAccess: boolean; access: string;
+  urgency: 'low' | 'medium' | 'urgent'; photos: PickedFile[]; caretakerAccess: boolean; access: string;
+  /** Generated once per form; resubmitting with the same key returns the same request. */
+  clientKey: string;
 }
+
+export interface AssignInput { vendorId?: string; caretakerId?: string; visit?: { date: string; window: string }; note: string; tellTenant: boolean }
+
+export interface TransitionInput { note?: string; rating?: number; /** Completion photos, uploaded before the request is marked fixed. */ photos?: PickedFile[] }
+
+/** Files picked during onboarding; they are uploaded once the tenant record exists. */
+export interface OnboardingFiles { idFront?: PickedFile; idBack?: PickedFile; photo?: PickedFile; agreement?: PickedFile }
+
+export type NewDocument = Pick<DocFile, 'folder' | 'linkedTo' | 'tenantId' | 'propertyId' | 'expires'> & { name?: string }
 
 export interface RenewInput { start: string; end: string; rent: number; serviceCharge: number; notifyTenant: boolean; scheduleReminders: boolean }
 
@@ -28,11 +45,15 @@ export interface CreateUserInput { name: string; email: string; password: string
 
 export interface SignUpInput { name: string; email: string; phone: string; password: string; invite: string }
 
+/** The live feed of request and notification changes. `updatedAt` is the last successful refresh. */
+export interface LiveStatus { connection: 'connecting' | 'live' | 'offline'; updatedAt: string | null }
+
 interface Store {
   state: AppState;
   hydrated: boolean;
   me: User | null;
   myTenant: Tenant | null;
+  live: LiveStatus;
   /** Last failed server write, already rolled back. Shown as a toast, then cleared. */
   syncError: string | null;
   clearSyncError: () => void;
@@ -45,8 +66,14 @@ interface Store {
   /** Opens the app for an account that is signed in but still on the sign-up screens. */
   enter: () => void;
   signOut: () => Promise<void>;
+  /** Ends every session of this account (other phones and browsers too), then signs out here. */
+  signOutEverywhere: () => Promise<void>;
+  /** Checks the current password, then removes this account's sign-in for good (delete_my_account) and signs out. */
+  deleteAccount: (password: string) => Promise<AuthResult>;
   // global
   setLocationFilter: (id: string | null) => void;
+  /** Reloads everything this account may see (pull to refresh). False when the server can't be reached. */
+  refresh: () => Promise<boolean>;
   // portfolio
   addLocation: (l: Omit<Location, 'id'>) => string;
   updateLocation: (id: string, patch: Partial<Location>) => void;
@@ -59,8 +86,11 @@ interface Store {
   // tenants & onboarding
   saveDraft: (d: OnboardingDraft) => void;
   discardDraft: (id: string) => void;
-  submitOnboarding: (d: OnboardingDraft, approveNow: boolean) => Promise<string>;
+  /** Creates the tenant, then uploads the picked files. Resolves with the tenant id and any upload problem. */
+  submitOnboarding: (d: OnboardingDraft, approveNow: boolean, files: OnboardingFiles) => Promise<{ id: string; uploadError?: string }>;
   approveTenant: (tenantId: string) => void;
+  /** KYC rejection: the tenant is told why and asked to upload a new ID. */
+  requestNewId: (tenantId: string, reason: string) => void;
   updateTenant: (id: string, patch: Partial<Tenant>) => void;
   deactivateTenant: (id: string) => void;
   moveTenant: (id: string, unitId: string) => void;
@@ -69,18 +99,27 @@ interface Store {
   terminateLease: (leaseId: string) => void;
   sendLeaseReminder: (leaseIds: string[]) => number;
   setTenantIntent: (leaseId: string, intent: 'renew' | 'move_out') => void;
+  /** Stores the signed agreement and marks the lease signed. */
+  uploadLeaseAgreement: (leaseId: string, file: PickedFile) => Promise<void>;
+  // payments
+  /** Opens Paystack checkout for a charge. Phones: the outcome once checkout closes. Web: null, as the page leaves for Paystack. */
+  payOnline: (paymentId: string) => Promise<{ status: PaystackStatus; reference: string } | null>;
+  /** Asks the server to confirm a Paystack attempt, then reloads payments. */
+  checkPayment: (reference: string) => Promise<PaystackStatus>;
   // maintenance
   createRequest: (input: NewRequestInput) => Promise<string>;
-  assignVendor: (id: string, vendorId: string, visit: { date: string; window: string }, note: string, notifyVendor: boolean, tellTenant: boolean) => void;
-  setRequestStatus: (id: string, status: RequestStatus) => void;
+  /** Assigns a vendor and/or caretaker through the server; new requests become assigned. */
+  assignRequest: (id: string, input: AssignInput) => Promise<void>;
+  /** Moves a request along the workflow. The server checks the role and the step; errors are thrown. */
+  transitionRequest: (id: string, t: Transition, input?: TransitionInput) => Promise<void>;
   setRequestPriority: (id: string, p: Priority) => void;
   addComment: (id: string, text: string, shared: boolean) => void;
-  tenantConfirm: (id: string, fixed: boolean, rating?: number) => void;
   // vendors, comms, docs
   addVendor: (v: Omit<Vendor, 'id' | 'completed' | 'avgDays' | 'rating' | 'ratingCount' | 'spendThisMonth'>) => void;
   setVendorStatus: (id: string, status: Vendor['status']) => void;
   sendAnnouncement: (a: Omit<Announcement, 'id' | 'sentAt' | 'readPct' | 'by'>) => void;
-  addDocument: (d: Omit<DocFile, 'id' | 'date' | 'uploadedBy'>) => void;
+  /** Uploads the file, then records it. Throws with a readable message if either step fails. */
+  addDocument: (d: NewDocument, file: PickedFile) => Promise<DocFile>;
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (audience: string) => void;
   // admin
@@ -106,12 +145,21 @@ function authError(message: string): string {
   return message;
 }
 
+/** The list with one request replaced, added (newest first) or, when it is gone or hidden, removed. */
+function withRequest(list: MaintenanceRequest[], id: string, req: MaintenanceRequest | null): MaintenanceRequest[] {
+  if (!req) return list.filter((r) => r.id !== id);
+  return list.some((r) => r.id === id) ? list.map((r) => (r.id === id ? req : r)) : [req, ...list];
+}
+
 export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(emptyState);
   const [hydrated, setHydrated] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [live, setLive] = useState<LiveStatus>({ connection: 'connecting', updatedAt: null });
   const stateRef = useRef(state); // kept current by setNow, the only way state changes
   const writes = useRef<Promise<void>>(Promise.resolve());
+  /** Opened from the on-device copy with no connection: reload everything once the server is back. */
+  const stale = useRef(false);
 
   const setNow = useCallback((next: AppState) => {
     stateRef.current = next;
@@ -122,7 +170,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
    * Loads what this account may see. Tenants are linked to their tenancy first (no-op once linked).
    * `enter: false` loads the data but stays on the auth screens (used after sign-up).
    */
-  const open = useCallback(async (userId: string, enter = true): Promise<AuthResult> => {
+  const open = useCallback(async (userId: string, enter = true): Promise<AuthResult & { offline?: boolean }> => {
     try {
       const { data: profile, error } = await supabase.from('profiles').select('role, tenant_id, status').eq('id', userId).single();
       if (error || !profile) throw new Error(error?.message ?? 'Your profile is missing. Contact your property manager.');
@@ -135,6 +183,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (linkError) throw new Error(linkError.message);
       }
       const data = await loadAll();
+      stale.current = false;
       setNow({ ...data, sessionUserId: enter ? userId : null, locationFilter: null });
       if (enter) {
         void supabase.from('profiles').update({ last_active: new Date().toISOString() }).eq('id', userId).then(() => {});
@@ -145,7 +194,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
       return { ok: true };
     } catch (e) {
-      return { ok: false, error: authError(e instanceof Error ? e.message : String(e)) };
+      const message = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: authError(message), offline: isNetworkError(message) };
     }
   }, [setNow]);
 
@@ -157,11 +207,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         setTimeout(async () => {
           if (session) {
             const r = await open(session.user.id);
-            if (!r.ok) setSyncError(r.error);
+            // No signal: open on the last copy saved on this phone and catch up when the server is back.
+            const cached = !r.ok && r.offline ? await readCache(session.user.id) : null;
+            if (cached) {
+              stale.current = true;
+              setNow({ ...emptyState(), ...cached.data, sessionUserId: session.user.id, locationFilter: null });
+              setLive({ connection: 'offline', updatedAt: cached.savedAt });
+            } else if (!r.ok) setSyncError(r.error);
           }
           setHydrated(true);
         }, 0);
       } else if (event === 'SIGNED_OUT') {
+        void clearCache();
         setNow(emptyState());
       }
     });
@@ -209,8 +266,195 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     notifications: [{ ...n, id: uid('n'), at: new Date().toISOString(), read: false }, ...s.notifications],
   });
 
+  /** Pulls a request (and the notification feed) back from the server after a workflow function ran. */
+  const refreshRequest = useCallback(async (id: string) => {
+    const [req, notifications] = await Promise.all([loadRequest(id), loadNotifications()]);
+    const s = stateRef.current;
+    setNow({ ...s, requests: withRequest(s.requests, id, req), notifications });
+  }, [setNow]);
+
+  /**
+   * While signed in, follow changes to requests, their history and notifications (Realtime applies
+   * each user's RLS). One workflow step writes several rows, so changes are gathered for a moment and
+   * then the affected requests and the feed are reloaded. Reloading is idempotent, so a repeated
+   * event changes nothing. After a gap (reconnect, back from the background, browser back online)
+   * the whole request list and feed are reloaded instead.
+   */
+  useEffect(() => {
+    const userId = state.sessionUserId;
+    if (!userId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let running = Promise.resolve();
+    const ids = new Set<string>();
+    let feed = false, everything = false;
+
+    const flush = async () => {
+      const want = [...ids], full = everything, withFeed = feed || everything;
+      ids.clear(); feed = false; everything = false;
+      try {
+        await writes.current; // this user's own queued changes land first
+        if (full && stale.current) {
+          // Started from the saved copy: everything may be old, not just requests. open() also re-checks the account.
+          const r = await open(userId);
+          if (!r.ok && r.offline) throw new Error(r.error);
+          if (!r.ok) setSyncError(r.error);
+          stale.current = false;
+          if (!stopped) setLive({ connection: 'live', updatedAt: new Date().toISOString() });
+          return;
+        }
+        const [requests, changed, notifications] = await Promise.all([
+          full ? loadRequests() : null,
+          full ? [] : Promise.all(want.map(async (id) => [id, await loadRequest(id)] as const)),
+          withFeed ? loadNotifications() : null,
+        ]);
+        const s = stateRef.current;
+        if (stopped || s.sessionUserId !== userId) return;
+        const next = requests ?? changed.reduce((list, [id, req]) => withRequest(list, id, req), s.requests);
+        setNow({ ...s, requests: next, ...(notifications ? { notifications } : {}) });
+        setLive({ connection: 'live', updatedAt: new Date().toISOString() });
+      } catch {
+        // Unreachable: catch up on everything once the connection is back.
+        everything = true;
+        if (!stopped) setLive((l) => ({ ...l, connection: 'offline' }));
+      }
+    };
+    // Flushes run one at a time so an older reload never lands after a newer one.
+    const queue = (what: { id?: string; feed?: boolean; full?: boolean }) => {
+      if (what.id) ids.add(what.id);
+      if (what.feed) feed = true;
+      if (what.full) everything = true;
+      if (!timer) timer = setTimeout(() => { timer = null; running = running.then(flush); }, 400);
+    };
+    const offline = () => setLive((l) => ({ ...l, connection: 'offline' }));
+
+    const channel = supabase.channel(`live-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maintenance_requests' }, (p) => {
+        const row = (p.eventType === 'DELETE' ? p.old : p.new) as { id?: string };
+        if (row.id) queue({ id: row.id });
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'request_events' }, (p) => {
+        const requestId = (p.new as { request_id?: string }).request_id;
+        if (requestId) queue({ id: requestId });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => queue({ feed: true }))
+      .subscribe((status) => {
+        // Also fires after every automatic rejoin; the first one covers changes made since sign-in loaded.
+        if (status === 'SUBSCRIBED') queue({ full: true });
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') offline();
+      });
+
+    // Phones pause the connection in the background; catch up when the app comes back after a while.
+    let hiddenAt = 0;
+    const appState = RNAppState.addEventListener('change', (s) => {
+      if (s !== 'active') hiddenAt ||= Date.now();
+      else if (hiddenAt) { if (Date.now() - hiddenAt > 30_000) queue({ full: true }); hiddenAt = 0; }
+    });
+    const web = Platform.OS === 'web' && typeof window !== 'undefined';
+    const online = () => queue({ full: true });
+    if (web) { window.addEventListener('offline', offline); window.addEventListener('online', online); }
+
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      void supabase.removeChannel(channel);
+      appState.remove();
+      if (web) { window.removeEventListener('offline', offline); window.removeEventListener('online', online); }
+      setLive({ connection: 'connecting', updatedAt: null });
+    };
+  }, [state.sessionUserId, setNow, open]);
+
+  const refreshPayments = useCallback(async () => {
+    const userId = stateRef.current.sessionUserId;
+    await writes.current;
+    const p = await loadPayments();
+    const s = stateRef.current;
+    if (s.sessionUserId === userId) setNow({ ...s, ...p });
+  }, [setNow]);
+
+  /**
+   * Charges and Paystack attempts have their own channel, so a server that doesn't have the payments
+   * migration yet can't break the request feed. A receipt shows up as soon as the server confirms.
+   */
+  useEffect(() => {
+    const userId = state.sessionUserId;
+    if (!userId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const reload = () => {
+      if (!timer) timer = setTimeout(() => { timer = null; refreshPayments().catch(() => {}); }, 400);
+    };
+    const channel = supabase.channel(`payments-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'payments' }, reload)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'paystack_transactions' }, reload)
+      .subscribe();
+    return () => {
+      if (timer) clearTimeout(timer);
+      void supabase.removeChannel(channel);
+    };
+  }, [state.sessionUserId, refreshPayments]);
+
+  // Keep the on-device copy current for tenants and caretakers (see lib/cache.ts).
+  const cacheOwner = me && cacheable(me.role) ? me.id : null;
+  useEffect(() => {
+    if (!cacheOwner || state.sessionUserId !== cacheOwner) return;
+    const t = setTimeout(() => {
+      const { sessionUserId: _s, locationFilter: _l, ...data } = stateRef.current;
+      void saveCache(cacheOwner, data).catch(() => {});
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [state, cacheOwner]);
+
+  /** Staff actions done by server functions still go in the activity log. */
+  const logAction = useCallback((action: string, record: string) => {
+    const s = stateRef.current;
+    const user = s.users.find((u) => u.id === s.sessionUserId);
+    if (!user || user.role === 'tenant') return;
+    const entry: ActivityLog = { id: uid('lg'), at: new Date().toISOString(), user: user.name, action, record, area: 'Maintenance', device: deviceLabel };
+    setNow({ ...s, logs: [entry, ...s.logs].slice(0, 600) });
+    void supabase.from('activity_logs').insert({ id: entry.id, user_name: entry.user, actor_id: user.id, action, record, area: entry.area, device: entry.device }).then(() => {});
+  }, [setNow]);
+
+  /** The extension of a picked file, for naming the stored copy. */
+  const ext = (f: PickedFile) => (f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '');
+
+  /** Upload first, then record. A record the server rejects takes its file with it. */
+  const addDocument = useCallback(async (d: NewDocument, file: PickedFile): Promise<DocFile> => {
+    const folder = d.tenantId ? `tenants/${d.tenantId}` : d.propertyId ? `properties/${d.propertyId}` : null;
+    if (!folder) throw new Error('Link the document to a property or tenant first.');
+    const storagePath = await uploadFile('documents', folder, file);
+    const s0 = stateRef.current;
+    const meNow = s0.users.find((u) => u.id === s0.sessionUserId);
+    const doc: DocFile = {
+      id: uid('doc'), name: d.name?.trim() || file.name, kind: kindOf(file), folder: d.folder, linkedTo: d.linkedTo, tenantId: d.tenantId, propertyId: d.propertyId,
+      expires: d.expires, uploadedBy: meNow?.name ?? 'System', date: todayISO(), sizeKb: Math.max(1, Math.round(file.size / 1024)), storagePath,
+    };
+    mutate((s) => {
+      const next = { ...s, documents: [doc, ...s.documents] };
+      // A tenant sending a new ID needs someone to review it.
+      return meNow?.role === 'tenant' && d.folder === 'Tenant ID and KYC'
+        ? notify(next, { audience: 'staff', category: 'Tenants', title: 'New ID to review', body: `${meNow.name} uploaded ${doc.name}.`, meta: 'Tenants · KYC', tone: 'purple', link: { name: 'tenant', params: { id: d.tenantId! } } })
+        : next;
+    }, { action: 'Uploaded document', record: doc.name, area: d.tenantId ? 'Tenants' : 'Properties' });
+    await writes.current;
+    if (!stateRef.current.documents.some((x) => x.id === doc.id)) {
+      await removeFiles('documents', [storagePath]).catch(() => {});
+      throw new Error(`${doc.name} uploaded, but the record couldn’t be saved. Try again.`);
+    }
+    return doc;
+  }, [mutate]);
+
+  const uploadLeaseAgreement = useCallback(async (leaseId: string, file: PickedFile) => {
+    const s0 = stateRef.current;
+    const l = s0.leases.find((x) => x.id === leaseId);
+    if (!l) throw new Error('This lease no longer exists.');
+    const where = `${s0.properties.find((p) => p.id === l.propertyId)?.short ?? ''} ${s0.units.find((u) => u.id === l.unitId)?.code ?? ''}`.trim();
+    const doc = await addDocument({ name: `${l.id} signed agreement${ext(file)}`, folder: 'Lease agreements', linkedTo: `${l.id} · ${where}`, tenantId: l.tenantId, propertyId: l.propertyId }, file);
+    mutate((s) => ({ ...s, leases: s.leases.map((x) => (x.id === leaseId ? { ...x, agreement: doc.storagePath!, signed: true } : x)) }), { action: 'Uploaded signed agreement', record: leaseId, area: 'Leases' });
+    await writes.current;
+  }, [addDocument, mutate]);
+
   const store = useMemo<Store>(() => ({
-    state, hydrated, me, myTenant, syncError,
+    state, hydrated, me, myTenant, live, syncError,
     clearSyncError: () => setSyncError(null),
 
     // ---------------- auth ----------------
@@ -269,12 +513,63 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
     },
     signOut: async () => {
+      await unregisterPush(); // stop pushes to this phone first, while the session can still remove the token
+      await clearCache();
       await supabase.auth.signOut();
       setNow(emptyState());
+    },
+    signOutEverywhere: async () => {
+      await unregisterPush();
+      await clearCache();
+      await supabase.auth.signOut({ scope: 'global' });
+      setNow(emptyState());
+    },
+    deleteAccount: async (password) => {
+      const email = me?.email;
+      if (!email) return { ok: false, error: 'Sign in first.' };
+      // Check the password on a separate client, so this session isn't replaced.
+      const check = createSignupClient();
+      const { error: authErr } = await check.auth.signInWithPassword({ email, password });
+      if (authErr) return { ok: false, error: authErr.message.toLowerCase().includes('invalid login credentials') ? 'That password isn’t right.' : authError(authErr.message) };
+      await check.auth.signOut({ scope: 'local' });
+      try {
+        await rpc('delete_my_account', {});
+      } catch (e) {
+        return { ok: false, error: authError(e instanceof Error ? e.message : String(e)) };
+      }
+      // The server has removed the account and its push tokens; clear this device too.
+      await unregisterPush();
+      await clearCache();
+      await supabase.auth.signOut({ scope: 'local' });
+      setNow(emptyState());
+      return { ok: true };
     },
 
     // ---------------- global ----------------
     setLocationFilter: (id) => setNow({ ...stateRef.current, locationFilter: id }),
+    refresh: async () => {
+      const userId = stateRef.current.sessionUserId;
+      if (!userId) return true;
+      await writes.current;
+      if (stale.current) {
+        const r = await open(userId);
+        if (!r.ok && !r.offline) setSyncError(r.error);
+        if (r.ok) setLive({ connection: 'live', updatedAt: new Date().toISOString() });
+        return r.ok || !r.offline;
+      }
+      try {
+        const data = await loadAll();
+        const s = stateRef.current;
+        if (s.sessionUserId === userId) setNow({ ...s, ...data });
+        setLive({ connection: 'live', updatedAt: new Date().toISOString() });
+        return true;
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        if (!isNetworkError(message)) { setSyncError(message); return true; }
+        setLive((l) => ({ ...l, connection: 'offline' }));
+        return false;
+      }
+    },
 
 
     // ---------------- portfolio ----------------
@@ -319,7 +614,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // ---------------- tenants ----------------
     saveDraft: (d) => mutate((s) => ({ ...s, drafts: [{ ...d, savedAt: new Date().toISOString() }, ...s.drafts.filter((x) => x.id !== d.id)] })),
     discardDraft: (id) => mutate((s) => ({ ...s, drafts: s.drafts.filter((d) => d.id !== id) })),
-    submitOnboarding: async (d, approveNow) => {
+    submitOnboarding: async (d, approveNow, files) => {
       const [code, leaseId] = await Promise.all([nextCode('tenant'), nextCode('lease')]);
       const s0 = stateRef.current;
       const unit = s0.units.find((u) => u.id === d.allocation.unitId)!;
@@ -350,7 +645,28 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         ? { audience: 'staff', category: 'Tenants', title: 'Onboarding complete', body: `${tenant.name} was approved for ${prop.short} ${unit.code}. They can sign up for the tenant portal with ${tenant.email}.`, meta: 'Tenants', tone: 'success', link: { name: 'tenant', params: { id: tenantId } } }
         : { audience: 'staff', category: 'Tenants', title: 'Tenant awaiting approval', body: `${tenant.name} completed onboarding for ${prop.short} ${unit.code}.`, meta: 'Tenants · Approval', tone: 'purple', link: { name: 'tenant', params: { id: tenantId } } }),
       { action: approveNow ? 'Approved new tenant' : 'Submitted tenant for approval', record: tenant.name, area: 'Tenants' });
-      return tenantId;
+      await writes.current;
+      if (!stateRef.current.tenants.some((x) => x.id === tenantId)) throw new Error('The server didn’t accept the new tenant.');
+
+      // The storage policy checks that the tenant exists, so files go up only now.
+      const linkedTo = `${prop.short} · ${unit.code}`;
+      const idType = d.id_.type.split(' (')[0];
+      const kyc: [PickedFile | undefined, string][] = [
+        [files.idFront, `${idType} (front) – ${tenant.name}`],
+        [files.idBack, `${idType} (back) – ${tenant.name}`],
+        [files.photo, `Passport photo – ${tenant.name}`],
+      ];
+      const failed: string[] = [];
+      for (const [f, name] of kyc) {
+        if (!f) continue;
+        try { await addDocument({ name: name + ext(f), folder: 'Tenant ID and KYC', linkedTo, tenantId, propertyId: unit.propertyId }, f); } catch { failed.push(f.name); }
+      }
+      if (files.agreement) {
+        try { await uploadLeaseAgreement(leaseId, files.agreement); } catch { failed.push(files.agreement.name); }
+      }
+      return failed.length
+        ? { id: tenantId, uploadError: `The tenant was saved, but ${failed.join(', ')} didn’t upload. Add ${failed.length > 1 ? 'them' : 'it'} from the tenant’s profile.` }
+        : { id: tenantId };
     },
     approveTenant: (tenantId) => {
       // A tenant without a lease gets a 12-month one, which needs a code from the server first.
@@ -378,6 +694,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }, { action: 'Approved tenant application', record: t0?.name ?? '', area: 'Tenants' }))
         .catch((e: unknown) => setSyncError(`Couldn’t approve the tenant: ${e instanceof Error ? e.message : String(e)}`));
     },
+    requestNewId: (tenantId, reason) => mutate((s) => {
+      const t = s.tenants.find((x) => x.id === tenantId);
+      if (!t) return s;
+      return notify({
+        ...s,
+        tenants: s.tenants.map((x) => (x.id === tenantId ? { ...x, identification: { ...x.identification, verified: false } } : x)),
+      }, { audience: tenantId, category: 'Tenants', title: 'Please upload a new ID.', body: reason, meta: 'Account · Identification', tone: 'warning', link: { name: 'myDocuments' } });
+    }, { action: 'Asked tenant for a new ID', record: stateRef.current.tenants.find((t) => t.id === tenantId)?.name ?? '', area: 'Tenants' }),
     updateTenant: (id, patch) => mutate((s) => ({
       ...s,
       tenants: s.tenants.map((t) => (t.id === id ? { ...t, ...patch } : t)),
@@ -462,52 +786,69 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       });
     }, { action: intent === 'renew' ? 'Tenant confirmed intent to renew' : 'Tenant gave notice to move out', record: leaseId, area: 'Leases' }),
 
+    uploadLeaseAgreement,
+
+    // ---------------- payments ----------------
+    payOnline: async (paymentId) => {
+      const reference = await openCheckout(paymentId);
+      if (!reference) return null;
+      const status = await confirmPayment(reference);
+      await refreshPayments().catch(() => {});
+      return { status, reference };
+    },
+    checkPayment: async (reference) => {
+      const status = await confirmPayment(reference);
+      await refreshPayments().catch(() => {});
+      return status;
+    },
+
     // ---------------- maintenance ----------------
     createRequest: async (input) => {
-      const id = await nextCode('request');
+      await writes.current;
       const s0 = stateRef.current;
-      const t = s0.tenants.find((x) => x.id === input.tenantId)!;
-      const unit = s0.units.find((u) => u.id === t.unitId)!;
       const priority: Priority = input.urgency === 'urgent' ? 'urgent' : input.urgency === 'medium' ? 'medium' : 'low';
-      const nowIso = new Date().toISOString();
-      const req: MaintenanceRequest = {
-        id, tenantId: t.id, unitId: unit.id, propertyId: unit.propertyId, category: input.category, title: input.title, description: input.description,
-        where: input.where, priority, status: 'new', createdAt: nowIso, updatedAt: nowIso, photos: input.photos, access: input.access, caretakerAccess: input.caretakerAccess,
-        events: [{ id: uid('ev'), kind: 'created', text: `Request submitted by ${t.name}`, by: `${s0.users.find((u) => u.id === s0.sessionUserId)?.role === 'tenant' ? 'Tenant portal' : 'Logged by staff'} · ${input.photos} photos attached`, at: nowIso }],
-      };
-      const prop = s0.properties.find((p) => p.id === unit.propertyId)!;
-      mutate((s) => notify({ ...s, requests: [req, ...s.requests] }, {
-        audience: 'staff', category: 'Maintenance', title: priority === 'urgent' ? 'Urgent request' : 'New maintenance request',
-        body: `${id}: ${input.title.toLowerCase()} at ${prop.short} ${unit.code}.`, meta: `Maintenance · ${input.category}`, tone: priority === 'urgent' ? 'danger' : 'info', link: { name: 'request', params: { id } },
-      }), { action: 'Submitted maintenance request', record: id, area: 'Maintenance' });
+      const id = await rpc<string>('create_request', { p: {
+        client_key: input.clientKey, tenant_id: input.tenantId, category: input.category, title: input.title, description: input.description,
+        room: input.where, priority, access: input.access, caretaker_access: input.caretakerAccess, photos: input.photos.length,
+      } });
+      // Photos live under the request id, which the storage policy checks, so they follow the request.
+      // A retried submission returns the same id; its photos are already there.
+      const already = s0.requests.some((r) => r.id === id);
+      const results = already ? [] : await Promise.allSettled(input.photos.map((f) => uploadFile('maintenance-photos', id, f)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed) setSyncError(`Request ${id} was sent, but ${failed} of ${input.photos.length} photos didn’t upload. Add them from the request.`);
+      await refreshRequest(id);
+      if (!already) logAction('Submitted maintenance request', id);
       return id;
     },
-    assignVendor: (id, vendorId, visit, note, _notifyVendor, tellTenant) => mutate((s) => {
-      const r = s.requests.find((x) => x.id === id);
-      const v = s.vendors.find((x) => x.id === vendorId);
-      if (!r || !v) return s;
-      const who = s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System';
-      const ev: RequestEvent[] = [{ id: uid('ev'), kind: 'vendor', text: `${v.name} assigned · visit ${fmtDate(visit.date)}, ${visit.window}`, by: who, at: new Date().toISOString(), shared: tellTenant }];
-      if (note.trim()) ev.push({ id: uid('ev'), kind: 'comment', text: note.trim(), by: who, at: new Date().toISOString(), internal: true });
-      let next: AppState = {
-        ...s,
-        requests: s.requests.map((x) => (x.id === id ? { ...x, vendorId, visit, status: x.status === 'new' ? 'assigned' : x.status, updatedAt: new Date().toISOString(), events: [...x.events.filter((e) => e.kind !== 'waiting'), ...ev] } : x)),
-      };
-      if (tellTenant) next = notify(next, { audience: r.tenantId, category: 'My requests', title: `${v.name} is booked for ${fmtDate(visit.date)}, ${visit.window}.`, body: `They will fix: ${r.title.toLowerCase()}.`, meta: `My requests · ${who}`, tone: 'warning', link: { name: 'myRequests' } });
-      return next;
-    }, { action: `Assigned vendor ${stateRef.current.vendors.find((v) => v.id === vendorId)?.name}`, record: id, area: 'Maintenance' }),
-    setRequestStatus: (id, status) => mutate((s) => {
-      const r = s.requests.find((x) => x.id === id);
-      if (!r) return s;
-      const label = { new: 'New', assigned: 'Assigned', in_progress: 'In progress', resolved: 'Resolved', closed: 'Closed' }[status];
-      const who = s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System';
-      let next: AppState = {
-        ...s,
-        requests: s.requests.map((x) => (x.id === id ? { ...x, status, updatedAt: new Date().toISOString(), resolvedAt: status === 'resolved' || status === 'closed' ? (x.resolvedAt ?? new Date().toISOString()) : undefined, cost: status === 'resolved' ? (x.cost ?? x.estimate) : x.cost, events: [...x.events, { id: uid('ev'), kind: 'status' as const, text: `Status changed to ${label}`, by: who, at: new Date().toISOString(), shared: true }] } : x)),
-      };
-      if (status === 'resolved') next = notify(next, { audience: r.tenantId, category: 'My requests', title: 'Your request was marked as fixed.', body: `${r.title} (${r.id}). Please confirm it’s working.`, meta: 'My requests', tone: 'success', link: { name: 'myRequests' } });
-      return next;
-    }, { action: `Changed status to ${status.replace('_', ' ')}`, record: id, area: 'Maintenance' }),
+    assignRequest: async (id, input) => {
+      await writes.current;
+      await rpc('assign_request', {
+        p_id: id, p_vendor_id: input.vendorId ?? null, p_caretaker_id: input.caretakerId ?? null,
+        p_visit: input.visit ?? null, p_note: input.note.trim() || null, p_tell_tenant: input.tellTenant,
+      });
+      await refreshRequest(id);
+      const s = stateRef.current;
+      const who = [s.vendors.find((v) => v.id === input.vendorId)?.name, s.users.find((u) => u.id === input.caretakerId)?.name].filter(Boolean).join(' and ');
+      logAction(`Assigned ${who}`, id);
+    },
+    transitionRequest: async (id, t, input = {}) => {
+      await writes.current;
+      if (input.photos?.length) {
+        // Completion photos go in their own folder so they stay apart from the tenant's.
+        const results = await Promise.allSettled(input.photos.map((f) => uploadFile('maintenance-photos', `${id}/completion`, f)));
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        if (failed === input.photos.length) throw new Error('The completion photos didn’t upload. Check your connection and try again.');
+        if (failed) setSyncError(`${failed} of ${input.photos.length} completion photos didn’t upload.`);
+      }
+      try {
+        await rpc('request_transition', { p_id: id, p_to: TRANSITION_TO[t], p_note: input.note?.trim() || null, p_rating: input.rating ?? null });
+      } finally {
+        await refreshRequest(id).catch(() => {});
+      }
+      const label: Record<Transition, string> = { start: 'Started work', complete: 'Marked request fixed', confirm: 'Confirmed request fixed', dispute: 'Disputed fix', reopen: 'Reopened disputed request', cancel: 'Cancelled request', close: 'Closed request' };
+      logAction(label[t], id);
+    },
     setRequestPriority: (id, p) => mutate((s) => ({
       ...s,
       requests: s.requests.map((x) => (x.id === id ? { ...x, priority: p, events: [...x.events, { id: uid('ev'), kind: 'priority' as const, text: `Priority set to ${p[0].toUpperCase() + p.slice(1)}`, by: s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System', at: new Date().toISOString() }] } : x)),
@@ -520,20 +861,6 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         requests: s.requests.map((x) => (x.id === id ? { ...x, updatedAt: new Date().toISOString(), events: [...x.events, { id: uid('ev'), kind: 'comment' as const, text, by: me_?.name ?? 'System', at: new Date().toISOString(), internal: !shared && !isTenant, shared: shared || isTenant }] } : x)),
       };
     }, { action: 'Commented on request', record: id, area: 'Maintenance' }),
-    tenantConfirm: (id, fixed, rating) => mutate((s) => {
-      const r = s.requests.find((x) => x.id === id);
-      if (!r) return s;
-      const t = s.tenants.find((x) => x.id === r.tenantId);
-      const unit = s.units.find((u) => u.id === r.unitId);
-      const next: AppState = {
-        ...s,
-        requests: s.requests.map((x) => (x.id === id ? {
-          ...x, status: fixed ? 'closed' : 'in_progress', rating: fixed ? rating : x.rating, updatedAt: new Date().toISOString(),
-          events: [...x.events, { id: uid('ev'), kind: 'status' as const, text: fixed ? `Tenant confirmed the fix${rating ? ` · rated ${rating}/5` : ''} — request closed` : 'Tenant reported the issue is still a problem — reopened', by: t?.name ?? 'Tenant', at: new Date().toISOString(), shared: true }],
-        } : x)),
-      };
-      return notify(next, { audience: 'staff', category: 'Maintenance', title: fixed ? 'Tenant confirmed fix' : 'Request reopened by tenant', body: `${id}: ${r.title.toLowerCase()} at ${s.properties.find((p) => p.id === r.propertyId)?.short} ${unit?.code}.`, meta: 'Maintenance', tone: fixed ? 'success' : 'warning', link: { name: 'request', params: { id } } });
-    }, { action: fixed ? 'Confirmed request fixed' : 'Reopened request', record: id, area: 'Maintenance' }),
 
     // ---------------- vendors, comms, docs ----------------
     addVendor: (v) => mutate((s) => ({ ...s, vendors: [...s.vendors, { ...v, id: uid('ven'), completed: 0, avgDays: 0, rating: 0, ratingCount: 0, spendThisMonth: 0 }] }), { action: 'Added vendor', record: v.name, area: 'Maintenance' }),
@@ -546,7 +873,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const notifs: AppNotification[] = targets.map((t) => ({ id: uid('n'), audience: t.id, category: 'Announcement', title: `${a.subject}.`, body: a.message.replace('{first_name}', t.name.split(' ')[0]).replace('{property}', s.properties.find((p) => p.id === t.propertyId)?.name ?? '').split('\n').filter(Boolean).slice(0, 2).join(' '), meta: `Announcement · ${s.properties.find((p) => p.id === t.propertyId)?.name}`, at: new Date().toISOString(), read: false, tone: 'purple' }));
       return { ...s, announcements: [ann, ...s.announcements], notifications: [...notifs, ...s.notifications] };
     }, { action: a.status === 'scheduled' ? 'Scheduled announcement' : a.status === 'template' ? 'Saved announcement template' : 'Sent announcement', record: a.subject, area: 'Communications' }),
-    addDocument: (d) => mutate((s) => ({ ...s, documents: [{ ...d, id: uid('doc'), date: todayISO(), uploadedBy: s.users.find((u) => u.id === s.sessionUserId)?.name ?? 'System' }, ...s.documents] }), { action: 'Uploaded document', record: d.name, area: 'Properties' }),
+    addDocument,
     markNotificationRead: (id) => mutate((s) => ({ ...s, notifications: s.notifications.map((n) => (n.id === id && !n.read ? { ...n, read: true } : n)) })),
     markAllNotificationsRead: (audience) => mutate((s) => ({ ...s, notifications: s.notifications.map((n) => (n.audience === audience && !n.read ? { ...n, read: true } : n)) })),
 
@@ -608,7 +935,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     },
     updateUser: (id, patch) => mutate((s) => ({ ...s, users: s.users.map((u) => (u.id === id ? { ...u, ...patch } : u)) }), { action: 'Updated team member', record: stateRef.current.users.find((u) => u.id === id)?.name ?? '', area: 'Users' }),
     updateSettings: (patch) => mutate((s) => ({ ...s, settings: { ...s.settings, ...patch } }), { action: 'Updated organisation settings', record: '—', area: 'Users' }),
-  }), [state, hydrated, me, myTenant, syncError, mutate, actorName, open, setNow]);
+  }), [state, hydrated, me, myTenant, live, syncError, mutate, actorName, open, setNow, addDocument, uploadLeaseAgreement, refreshRequest, logAction, refreshPayments]);
 
   return <Ctx.Provider value={store}>{children}</Ctx.Provider>;
 }

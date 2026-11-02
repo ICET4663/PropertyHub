@@ -1,3 +1,4 @@
+import { useNow } from '../../hooks/useNow';
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import {
@@ -17,6 +18,7 @@ import { ALL_CATEGORIES } from '../../data/seed';
 import { MONTHS, addMonths, firstName, fmtDate, fmtShort, greeting, longToday, pct, timeAgo, daysUntil, parseDate } from '../../utils';
 
 export default function DashboardScreen() {
+  const now = useNow();
   const { state, me, sendLeaseReminder } = useStore();
   const scope = useScope();
   const lookup = useLookup();
@@ -40,7 +42,7 @@ export default function DashboardScreen() {
   const progressCount = pf.open.filter((r) => r.status === 'in_progress').length;
   const urgent = pf.open.filter((r) => r.priority === 'urgent').length;
 
-  const attention: Array<{ n: number; label: string; tone: 'danger' | 'warning' | 'info' | 'accent'; go: () => void }> = ([
+  const attention: { n: number; label: string; tone: 'danger' | 'warning' | 'info' | 'accent'; go: () => void }[] = ([
     { n: pf.expired.length, label: 'leases expired', tone: 'danger', go: () => navigate('leases', { filter: 'expired' }) },
     { n: pf.within30.length, label: 'leases expire in 30 days', tone: 'warning', go: () => navigate('leases', { filter: '30' }) },
     { n: newCount, label: 'new requests unassigned', tone: 'info', go: () => navigate('requests', { status: 'new' }) },
@@ -70,11 +72,11 @@ export default function DashboardScreen() {
   const perf = useMemo(() => {
     const hist = [3.9, 3.5, 3.1, 2.9, 2.6];
     const sla = [71, 76, 80, 83, 87];
-    const resolved = scope.requests.filter((r) => r.resolvedAt && Date.now() - parseDate(r.resolvedAt).getTime() < 30 * 86400000);
+    const resolved = scope.requests.filter((r) => r.resolvedAt && now - parseDate(r.resolvedAt).getTime() < 30 * 86400000);
     const cur = resolved.length ? resolved.reduce((s, r) => s + (parseDate(r.resolvedAt!).getTime() - parseDate(r.createdAt).getTime()) / 86400000, 0) / resolved.length : 2.4;
     const within = resolved.length ? Math.round((resolved.filter((r) => (parseDate(r.resolvedAt!).getTime() - parseDate(r.createdAt).getTime()) / 86400000 <= 3).length / resolved.length) * 100) : 89;
     return [...hist.map((v, i) => ({ label: MONTHS[addMonths(new Date(), i - 5).getMonth()], sub: `${sla[i]}%${i === 0 ? ' SLA' : ''}`, value: v })), { label: MONTHS[new Date().getMonth()], sub: `${within}%`, value: Math.round(cur * 10) / 10 }];
-  }, [scope.requests]);
+  }, [scope.requests, now]);
 
   const recent = scope.requests
     .filter((r) => (reqFilter === 'vendor' ? r.status === 'new' : reqFilter === 'urgent' ? r.priority === 'urgent' || r.priority === 'high' : true))
@@ -100,16 +102,7 @@ export default function DashboardScreen() {
     toast(ok ? 'Portfolio summary downloaded' : 'Export is available on the web app', ok ? 'success' : 'info');
   };
 
-  const Stat = ({ icon, tone, label, value, sub, subNode, onPress, highlight }: { icon: any; tone: Tone; label: string; value: string | number; sub?: string; subNode?: React.ReactNode; onPress?: () => void; highlight?: boolean }) => (
-    <Card onPress={onPress} style={[{ minHeight: 132 }, highlight && { borderColor: '#F0DDB5' }]} pad={18}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-        <IconTile icon={icon} tone={tone} size={32} />
-        <T size={13} weight="medium" color={colors.textSoft}>{label}</T>
-      </View>
-      <T size={28} weight="bold" style={{ marginTop: 12, letterSpacing: -0.5 }}>{value}</T>
-      {subNode ?? (sub ? <T size={12} color={colors.subtext} style={{ marginTop: 2 }}>{sub}</T> : null)}
-    </Card>
-  );
+
 
   return (
     <Page>
@@ -309,3 +302,14 @@ export default function DashboardScreen() {
     </Page>
   );
 }
+
+const Stat = ({ icon, tone, label, value, sub, subNode, onPress, highlight }: { icon: any; tone: Tone; label: string; value: string | number; sub?: string; subNode?: React.ReactNode; onPress?: () => void; highlight?: boolean }) => (
+  <Card onPress={onPress} style={[{ minHeight: 132 }, highlight && { borderColor: '#F0DDB5' }]} pad={18}>
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <IconTile icon={icon} tone={tone} size={32} />
+      <T size={13} weight="medium" color={colors.textSoft}>{label}</T>
+    </View>
+    <T size={28} weight="bold" style={{ marginTop: 12, letterSpacing: -0.5 }}>{value}</T>
+    {subNode ?? (sub ? <T size={12} color={colors.subtext} style={{ marginTop: 2 }}>{sub}</T> : null)}
+  </Card>
+);

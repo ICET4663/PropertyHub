@@ -4,6 +4,8 @@ import {
   ArrowRight, Bell, Check, Clock, Download, Eye, FileText, Pencil, Plus, RefreshCw, Search, Send, TriangleAlert, Upload, XCircle, CalendarClock, RotateCw,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
+import { usePick, useOpenDocument } from '../../components/files';
+import { DOC_TYPES, pickDocuments } from '../../lib/files';
 import { useLookup, useScope, useStore } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader, StickyFooter } from '../../components/shell';
@@ -54,13 +56,7 @@ export function LeasesScreen() {
     toast(`Renewal reminders sent to ${ids.length} tenants`);
   };
 
-  const Stat = ({ icon, tone, label, value, sub, onPress, active }: any) => (
-    <Card pad={16} onPress={onPress} style={active ? { borderColor: colors.primary } : undefined}>
-      <Row gap={8}><IconTile icon={icon} tone={tone} size={26} iconSize={13} /><T size={12} color={colors.textSoft} numberOfLines={1}>{label}</T></Row>
-      <T size={24} weight="bold" style={{ marginTop: 8 }}>{value}</T>
-      <T size={11.5} color={colors.subtext}>{sub}</T>
-    </Card>
-  );
+
 
   const dayBar = (d: number) => {
     const c = d < 0 ? colors.danger : d <= 30 ? colors.vizMaint : colors.primary;
@@ -121,7 +117,10 @@ export function LeasesScreen() {
 // ---------------------------------------------------------------- Lease details
 
 export function LeaseDetailScreen({ id }: { id: string }) {
-  const { state, me, sendLeaseReminder, terminateLease, addDocument } = useStore();
+  const { state, me, sendLeaseReminder, terminateLease, uploadLeaseAgreement } = useStore();
+  const pick = usePick();
+  const openDoc = useOpenDocument();
+  const [uploading, setUploading] = useState(false);
   const lookup = useLookup();
   const { navigate } = useRouter();
   const toast = useToast();
@@ -141,6 +140,22 @@ export function LeaseDetailScreen({ id }: { id: string }) {
   const chain = state.leases.filter((x) => x.tenantId === l.tenantId).sort((a, b) => (a.start < b.start ? 1 : -1));
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
   const endD = new Date(l.end + 'T00:00:00');
+  // Uploaded agreements are stored as a path; older leases only have a file name.
+  const agreementDoc = l.agreement.includes('/') ? state.documents.find((x) => x.storagePath === l.agreement) : undefined;
+  const agreementName = agreementDoc?.name ?? (l.agreement.includes('/') ? l.agreement.split('/').pop()! : l.agreement);
+  const uploadAgreement = async () => {
+    const [f] = await pick(() => pickDocuments(DOC_TYPES), 'documents', DOC_TYPES);
+    if (!f) return;
+    setUploading(true);
+    try {
+      await uploadLeaseAgreement(l.id, f);
+      toast('Signed agreement uploaded');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger');
+    } finally {
+      setUploading(false);
+    }
+  };
   const at = (days: number) => Math.min(1, Math.max(0, (total - days) / total));
   const marks = [
     { at: 0, label: fmtDate(l.start), sub: 'Agreement signed', tone: 'done' as const },
@@ -157,7 +172,7 @@ export function LeaseDetailScreen({ id }: { id: string }) {
         subtitle={`${t.name} · ${p.name} · ${block?.name} · Flat ${u.code}`}
         actions={canEdit && s !== 'renewed' && s !== 'terminated' ? <>
           <Button title="Edit lease" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
-          <Button title="Upload agreement" icon={Upload} size="sm" variant="secondary" onPress={() => { addDocument({ name: `${l.id} signed agreement.pdf`, kind: 'pdf', folder: 'Lease agreements', linkedTo: `${p.short} · ${u.code}`, tenantId: t.id, propertyId: p.id, sizeKb: 1400 }); toast('Agreement uploaded'); }} />
+          <Button title={uploading ? 'Uploading…' : 'Upload agreement'} icon={Upload} size="sm" variant="secondary" disabled={uploading} onPress={() => void uploadAgreement()} />
           <Button title="Send reminder" icon={Send} size="sm" variant="secondary" onPress={() => { sendLeaseReminder([l.id]); toast(`Reminder sent to ${t.name}`); }} />
           <Button title="Terminate lease" size="sm" variant="dangerGhost" onPress={() => confirm.ask({ title: `Terminate ${l.id}?`, body: `${t.name} will be marked as moved out and Flat ${u.code} becomes vacant. This can’t be undone.`, confirm: 'Terminate lease', danger: true, onConfirm: () => { terminateLease(l.id); toast('Lease terminated'); } })} />
           <Button title="Renew lease" icon={RefreshCw} size="sm" onPress={() => navigate('renew', { id: l.id })} />
@@ -218,11 +233,13 @@ export function LeaseDetailScreen({ id }: { id: string }) {
                 <T size={15} color={colors.info} style={{ fontStyle: 'italic' }}>F. Adewale</T>
               </Row>
             </View>
-            <FileRow name={l.agreement} kind="pdf" meta={`${l.signed ? '8 pages · 1.4 MB' : 'Draft'} · uploaded ${fmtDate(l.start)}`} />
+            <FileRow name={agreementName} kind={agreementDoc?.kind ?? 'pdf'} meta={agreementDoc ? `${(agreementDoc.sizeKb / 1024).toFixed(1)} MB · uploaded ${fmtDate(agreementDoc.date)} by ${agreementDoc.uploadedBy}` : 'No signed copy uploaded yet'} onPress={agreementDoc ? () => openDoc(agreementDoc) : undefined} />
             <Row gap={8} style={{ marginTop: 10 }}>
-              <Button title="Preview" icon={Eye} size="sm" variant="secondary" style={{ flex: 1 }} onPress={() => toast('Opening agreement preview', 'info')} />
-              <Button title="Download" icon={Download} size="sm" variant="secondary" style={{ flex: 1 }} onPress={() => toast('Download started')} />
-              <Button title="Replace" size="sm" variant="ghost" onPress={() => toast('Choose a new file to replace the agreement', 'info')} />
+              {agreementDoc ? <>
+                <Button title="Open" icon={Eye} size="sm" variant="secondary" style={{ flex: 1 }} onPress={() => openDoc(agreementDoc)} />
+                <Button title="Download" icon={Download} size="sm" variant="secondary" style={{ flex: 1 }} onPress={() => openDoc(agreementDoc, true)} />
+              </> : null}
+              {canEdit ? <Button title={uploading ? 'Uploading…' : agreementDoc ? 'Replace' : 'Upload signed copy'} icon={agreementDoc ? undefined : Upload} size="sm" variant={agreementDoc ? 'ghost' : 'secondary'} disabled={uploading} style={agreementDoc ? undefined : { flex: 1 }} onPress={() => void uploadAgreement()} /> : null}
             </Row>
           </Card>
           <Card>
@@ -399,3 +416,11 @@ export function RenewLeaseScreen({ id }: { id: string }) {
 }
 
 export { XCircle, Segmented };
+
+const Stat = ({ icon, tone, label, value, sub, onPress, active }: any) => (
+  <Card pad={16} onPress={onPress} style={active ? { borderColor: colors.primary } : undefined}>
+    <Row gap={8}><IconTile icon={icon} tone={tone} size={26} iconSize={13} /><T size={12} color={colors.textSoft} numberOfLines={1}>{label}</T></Row>
+    <T size={24} weight="bold" style={{ marginTop: 8 }}>{value}</T>
+    <T size={11.5} color={colors.subtext}>{sub}</T>
+  </Card>
+);

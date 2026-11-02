@@ -65,7 +65,7 @@ export function buildSeed(): AppState {
     { id: 'prop-aminu', name: 'Aminu Kano Apartments', short: 'Aminu Kano', type: 'Serviced apartments', locationId: 'loc-wuse', address: '18 Aminu Kano Crescent, Wuse 2, Abuja', managerId: 'u-musa', addedAt: '2023-02-01', description: 'Serviced apartments in central Abuja with housekeeping.', amenities: ['24h power backup', 'Housekeeping', 'Elevator', 'Security post', 'Parking'], art: { bg: '#ECE3DC', a: '#2F5D4B', b: '#3E4F6E' }, status: 'active' },
   ];
 
-  const blockPlan: Array<{ propertyId: string; name: string; count: number }> = [
+  const blockPlan: { propertyId: string; name: string; count: number }[] = [
     { propertyId: 'prop-palm', name: 'A', count: 12 },
     { propertyId: 'prop-palm', name: 'B', count: 12 },
     { propertyId: 'prop-bourdillon', name: 'A', count: 10 },
@@ -350,7 +350,7 @@ export function buildSeed(): AppState {
     { id: 2073, t: 'Adamu Garba', cat: 'Generator', title: 'Power not switching to generator', pr: 'high', st: 'assigned', d: -2, where: 'Whole flat' },
   ];
   // Fill remaining open requests to hit design totals by property/category/status
-  const openFill: Array<{ pid: string; cat: Category; st: RequestStatus; pr: Priority; title: string }> = [
+  const openFill: { pid: string; cat: Category; st: RequestStatus; pr: Priority; title: string }[] = [
     { pid: 'prop-hm', cat: 'Plumbing', st: 'new', pr: 'medium', title: 'Shower mixer broken' },
     { pid: 'prop-hm', cat: 'Electrical', st: 'new', pr: 'high', title: 'Frequent power trips in flat' },
     { pid: 'prop-hm', cat: 'Plumbing', st: 'in_progress', pr: 'medium', title: 'Kitchen drain blocked' },
@@ -417,7 +417,7 @@ export function buildSeed(): AppState {
   pushReq({ num: 2083, tenant: tByName('Chidinma Okafor'), cat: 'Water supply', title: 'Low water pressure', desc: 'Water comes out very slowly from all taps since Sunday.', pr: 'medium', st: 'resolved', created: at(-2, 8, 2), where: 'Kitchen and bathroom taps' });
   pushReq({ num: 2081, tenant: tByName('Olumide Johnson'), cat: 'Building repairs', title: 'Cracked bathroom tiles', pr: 'low', st: 'closed', created: at(-3, 13), where: 'Bathroom' });
   // Resolved / closed history for the last 30 days
-  const closedTitles: Array<[Category, string]> = [
+  const closedTitles: [Category, string][] = [
     ['Plumbing', 'Leaking tap in kitchen'], ['Electrical', 'Replace faulty inverter socket'], ['Building repairs', 'Door hinge squeaking'], ['Water supply', 'Borehole pump reset'],
     ['Cleaning', 'Stairwell deep clean'], ['Air conditioning', 'AC gas refill'], ['Generator', 'Generator oil change'], ['Security', 'Replace gate padlock'],
     ['Plumbing', 'Blocked bathroom drain'], ['Electrical', 'Replace blown bulbs in lobby'], ['Pests', 'Cockroach fumigation'], ['Building repairs', 'Repaint damp patch'],
@@ -507,7 +507,7 @@ export function buildSeed(): AppState {
     { id: 'lg-12', at: at(-2, 9, 2), user: 'Femi Adewale', action: 'Added block C to Palm Court', record: 'Palm Court', area: 'Properties', device: '197.210.8.44 · Safari, macOS' },
   ];
   const logUsers = ['Grace Uche', 'Tobi Lawal', 'Femi Adewale', 'System', 'Rukayat Adebayo', 'Musa Danjuma'];
-  const logActions: Array<[string, ActivityLog['area']]> = [['Updated tenant contact details', 'Tenants'], ['Closed maintenance request', 'Maintenance'], ['Uploaded lease agreement', 'Leases'], ['Sent announcement', 'Communications'], ['Marked unit as vacant', 'Properties'], ['Signed in', 'Security']];
+  const logActions: [string, ActivityLog['area']][] = [['Updated tenant contact details', 'Tenants'], ['Closed maintenance request', 'Maintenance'], ['Uploaded lease agreement', 'Leases'], ['Sent announcement', 'Communications'], ['Marked unit as vacant', 'Properties'], ['Signed in', 'Security']];
   for (let i = 0; i < 60; i++) {
     const [action, area] = logActions[i % logActions.length];
     logs.push({ id: `lg-x${i}`, at: at(-3 - Math.floor(i / 4), 8 + (i % 9), (i * 13) % 60), user: logUsers[i % logUsers.length], action, record: area === 'Maintenance' ? `MR-${2040 - i}` : area === 'Leases' ? `LS-0${150 + i}` : '—', area, device: '102.89.34.10 · Chrome, Windows' });
@@ -517,7 +517,7 @@ export function buildSeed(): AppState {
     version: STATE_VERSION,
     sessionUserId: null,
     users, locations, properties, blocks, units, tenants, leases, requests, vendors,
-    announcements, documents, notifications, payments, logs,
+    announcements, documents, notifications, payments, transactions: [], logs,
     settings: {
       orgName: 'Adewale Properties Ltd', rcNumber: 'RC 1482093', email: 'hello@propertyhub.ng', phone: '+234 1 700 2210',
       address: '14 Admiralty Way, Lekki Phase 1, Lagos', currency: 'Nigerian naira (₦)', timezone: 'West Africa Time (GMT+1)', dateFormat: '24 Sep 2026',

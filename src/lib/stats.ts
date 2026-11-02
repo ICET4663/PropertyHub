@@ -1,7 +1,9 @@
+import { useNow } from '../hooks/useNow';
 import { useMemo } from 'react';
 import { useScope, useStore } from '../store/AppContext';
 import type { Property, Unit } from '../types';
 import { daysUntil, parseDate } from '../utils';
+import { isOpen } from './workflow';
 
 export interface PropertyStats {
   property: Property;
@@ -31,22 +33,23 @@ export function usePropertyStats(): PropertyStats[] {
       maintenance: units.filter((u) => u.status === 'maintenance').length,
       occupancy: units.length ? occupied / units.length : 0,
       blocks: state.blocks.filter((b) => b.propertyId === p.id).length,
-      openRequests: state.requests.filter((r) => r.propertyId === p.id && ['new', 'assigned', 'in_progress'].includes(r.status)).length,
+      openRequests: state.requests.filter((r) => r.propertyId === p.id && isOpen(r)).length,
       activeTenants: state.tenants.filter((t) => t.propertyId === p.id && t.status === 'active').length,
     };
   }), [scope.properties, state]);
 }
 
 export function usePortfolio() {
+  const now = useNow();
   const scope = useScope();
   return useMemo(() => {
     const units = scope.units;
     const occupied = units.filter((u) => u.status === 'occupied').length;
     const vacant = units.filter((u) => u.status === 'vacant').length;
     const maintenance = units.filter((u) => u.status === 'maintenance').length;
-    const open = scope.requests.filter((r) => ['new', 'assigned', 'in_progress'].includes(r.status));
+    const open = scope.requests.filter((r) => isOpen(r));
     const leaseDays = scope.currentLeases.map((l) => ({ l, d: daysUntil(l.end) }));
-    const last30 = scope.requests.filter((r) => Date.now() - parseDate(r.createdAt).getTime() <= 30 * 86400000);
+    const last30 = scope.requests.filter((r) => now - parseDate(r.createdAt).getTime() <= 30 * 86400000);
     return {
       units, occupied, vacant, maintenance,
       occupancy: units.length ? occupied / units.length : 0,
@@ -60,5 +63,5 @@ export function usePortfolio() {
       activeTenants: scope.tenants.filter((t) => t.status === 'active'),
       pendingTenants: scope.tenants.filter((t) => t.status === 'pending'),
     };
-  }, [scope]);
+  }, [scope, now]);
 }

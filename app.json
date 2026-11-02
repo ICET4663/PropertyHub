@@ -2,6 +2,7 @@
   "expo": {
     "name": "Agon Preview",
     "slug": "agon-preview",
+    "scheme": "propertyhub",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -19,7 +20,8 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "output": "single"
     },
     "extra": {
       "eas": {
@@ -40,7 +42,24 @@
     ],
     "plugins": [
       "expo-font",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to use your photos so you can attach them to repair requests and tenant records.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use your camera so you can photograph repair issues and ID documents.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#1F5C4A",
+          "defaultChannel": "default"
+        }
+      ],
+      "expo-web-browser"
     ]
   }
 }

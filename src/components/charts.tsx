@@ -10,17 +10,17 @@ function useWidth(initial = 300) {
 }
 
 /** Multi-segment donut. Segments drawn clockwise from 12 o'clock with small gaps. */
-export function Donut({ size = 180, stroke = 22, segments, children, gap = 0.012 }: { size?: number; stroke?: number; segments: Array<{ value: number; color: string }>; children?: React.ReactNode; gap?: number }) {
+export function Donut({ size = 180, stroke = 22, segments, children, gap = 0.012 }: { size?: number; stroke?: number; segments: { value: number; color: string }[]; children?: React.ReactNode; gap?: number }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const total = segments.reduce((s, x) => s + x.value, 0) || 1;
-  let offset = 0;
   const visible = segments.filter((s) => s.value > 0);
   return (
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Svg width={size} height={size}>
         <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.neutralSoft} strokeWidth={stroke} fill="none" />
         {visible.map((s, i) => {
+          const offset = visible.slice(0, i).reduce((sum, segment) => sum + segment.value / total, 0);
           const frac = s.value / total;
           const g = visible.length > 1 ? gap : 0;
           const len = Math.max(0, frac - g) * c;
@@ -29,7 +29,6 @@ export function Donut({ size = 180, stroke = 22, segments, children, gap = 0.012
               strokeDasharray={`${len} ${c}`} strokeDashoffset={-offset * c}
               transform={`rotate(-90 ${size / 2} ${size / 2})`} />
           );
-          offset += frac;
           return el;
         })}
       </Svg>
@@ -39,7 +38,7 @@ export function Donut({ size = 180, stroke = 22, segments, children, gap = 0.012
 }
 
 /** Vertical bars with value labels. */
-export function BarChart({ data, height = 220, barWidth, valueColor }: { data: Array<{ label: string; value: number; color?: string; valueColor?: string; bold?: boolean }>; height?: number; barWidth?: number; valueColor?: string }) {
+export function BarChart({ data, height = 220, barWidth, valueColor }: { data: { label: string; value: number; color?: string; valueColor?: string; bold?: boolean }[]; height?: number; barWidth?: number; valueColor?: string }) {
   const { w, onLayout } = useWidth();
   const max = Math.max(1, ...data.map((d) => d.value));
   const plotH = height - 56;
@@ -70,7 +69,7 @@ export function BarChart({ data, height = 220, barWidth, valueColor }: { data: A
 }
 
 /** Horizontal label / bar / value rows (e.g. requests by category). */
-export function HBarList({ data, color = colors.primary, labelWidth = 130, showValue = true, max: maxIn }: { data: Array<{ label: string; value: number; color?: string; display?: string; muted?: boolean }>; color?: string; labelWidth?: number; showValue?: boolean; max?: number }) {
+export function HBarList({ data, color = colors.primary, labelWidth = 130, showValue = true, max: maxIn }: { data: { label: string; value: number; color?: string; display?: string; muted?: boolean }[]; color?: string; labelWidth?: number; showValue?: boolean; max?: number }) {
   const max = maxIn ?? Math.max(1, ...data.map((d) => d.value));
   return (
     <View style={{ gap: 13 }}>
@@ -89,7 +88,7 @@ export function HBarList({ data, color = colors.primary, labelWidth = 130, showV
 
 /** Line/area chart with optional dashed target line. */
 export function LineChart({ points, height = 240, target, unit = '', yMax, yTicks, highlightLast = true }: {
-  points: Array<{ label: string; sub?: string; value: number }>; height?: number; target?: number; unit?: string; yMax?: number; yTicks?: number[]; highlightLast?: boolean;
+  points: { label: string; sub?: string; value: number }[]; height?: number; target?: number; unit?: string; yMax?: number; yTicks?: number[]; highlightLast?: boolean;
 }) {
   const { w, onLayout } = useWidth();
   const padL = 30, padR = 16, padT = 16, padB = 44;
@@ -137,7 +136,7 @@ export function LineChart({ points, height = 240, target, unit = '', yMax, yTick
 }
 
 /** Monthly bars drawn against a full-height track (reports occupancy by month). */
-export function TrackBars({ data, height = 220 }: { data: Array<{ label: string; value: number; display: string }>; height?: number }) {
+export function TrackBars({ data, height = 220 }: { data: { label: string; value: number; display: string }[]; height?: number }) {
   const plotH = height - 50;
   return (
     <View style={{ height, flexDirection: 'row', gap: 8 }}>
@@ -155,7 +154,7 @@ export function TrackBars({ data, height = 220 }: { data: Array<{ label: string;
 }
 
 /** Lease timeline with milestone dots. */
-export function Timeline({ progress, marks }: { progress: number; marks: Array<{ at: number; label: string; sub?: string; tone?: 'done' | 'todo' | 'danger' }> }) {
+export function Timeline({ progress, marks }: { progress: number; marks: { at: number; label: string; sub?: string; tone?: 'done' | 'todo' | 'danger' }[] }) {
   const { w, onLayout } = useWidth();
   return (
     <View onLayout={onLayout} style={{ height: 70, marginHorizontal: 8 }}>

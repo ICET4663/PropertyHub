@@ -1,13 +1,17 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Platform, View } from 'react-native';
+import { Image } from 'expo-image';
 import {
-  ArrowLeftRight, Check, CircleCheck, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
-  ShieldCheck, Upload, UserMinus, UserPlus, Users, X, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
+  ArrowLeftRight, Camera, Check, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
+  ShieldCheck, Upload, UserMinus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
-import { useLookup, useScope, useStore } from '../../store/AppContext';
+import { useLookup, useScope, useStore, type OnboardingFiles } from '../../store/AppContext';
+import { FileSlot, UploadDocumentDialog, useOpenDocument } from '../../components/files';
+import { ACCEPT, DOC_TYPES, ID_TYPES, checkFile, pickPhotos, type PickedFile } from '../../lib/files';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader, StickyFooter } from '../../components/shell';
+import { useMessageTenant } from '../Messages';
 import {
   Avatar, Badge, Button, Card, CardHeader, Chip, Dialog, Divider, EmptyState, Grid, IconTile, Input, KV, Link, Menu, Notice, ProgressBar, Row, Select,
   T, Tabs, Touch, useConfirm, useToast, Checkbox, Segmented,
@@ -20,6 +24,7 @@ import { addDays, addMonths, daysBetween, daysUntil, fmtDate, fmtPadded, fmtShor
 // ---------------------------------------------------------------- Directory
 
 export function TenantsScreen() {
+  const messageTenant = useMessageTenant();
   const { state, me, approveTenant, deactivateTenant } = useStore();
   const scope = useScope();
   const lookup = useLookup();
@@ -108,7 +113,7 @@ export function TenantsScreen() {
           <Row style={{ paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.primaryTint, borderTopWidth: 1, borderTopColor: colors.border }} gap={10}>
             <T size={13} weight="semibold">{selected.size} selected</T>
             <Button title="Export selected" size="sm" variant="secondary" onPress={exportCsv} />
-            <Button title="Message" size="sm" variant="secondary" onPress={() => navigate('communications')} />
+            <Button title="Announce to selected" size="sm" variant="secondary" onPress={() => navigate('communications')} />
             <Button title="Clear" size="sm" variant="ghost" onPress={() => setSelected(new Set())} />
           </Row>
         ) : null}
@@ -117,7 +122,7 @@ export function TenantsScreen() {
           keyOf={(x) => x.t.id}
           selectable
           selected={selected}
-          onToggle={(k) => setSelected((s) => { const n = new Set(s); n.has(k) ? n.delete(k) : n.add(k); return n; })}
+          onToggle={(k) => setSelected((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; })}
           onToggleAll={(all) => setSelected(all ? new Set(pg.slice.map((x) => x.t.id)) : new Set())}
           onRowPress={(x) => navigate('tenant', { id: x.t.id })}
           empty={<EmptyState icon={Users} title="No tenants match" body="Try another tab or clear the filters." />}
@@ -137,7 +142,7 @@ export function TenantsScreen() {
                   ...(canEdit ? [
                     ...(x.t.status === 'pending' ? [{ label: 'Approve tenant', icon: ShieldCheck, onPress: () => { approveTenant(x.t.id); toast(`${x.t.name} approved and lease activated`); } }] : []),
                     { label: 'Edit', icon: Pencil, onPress: () => navigate('tenant', { id: x.t.id, edit: '1' }) },
-                    { label: 'Message', icon: MessageSquare, onPress: () => navigate('communications', { tenantId: x.t.id }) },
+                    { label: 'Message', icon: MessageSquare, onPress: () => messageTenant(x.t.id) },
                     ...(x.l ? [{ label: 'Renew lease', icon: RefreshCw, onPress: () => navigate('renew', { id: x.l!.id }) }] : []),
                     ...(x.t.status === 'active' ? [{ label: 'Move tenant', icon: ArrowLeftRight, onPress: () => setMoveFor(x.t) }] : []),
                     ...(x.t.status === 'active' || x.t.status === 'pending' ? [{ label: 'Deactivate', icon: UserMinus, danger: true, onPress: () => confirm.ask({ title: `Deactivate ${x.t.name}?`, body: 'Their lease will be ended, the unit marked vacant and portal access removed. Records are kept for your history.', confirm: 'Deactivate', danger: true, onConfirm: () => { deactivateTenant(x.t.id); toast(`${x.t.name} deactivated`); } }) }] : []),
@@ -160,7 +165,8 @@ function MoveTenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose:
   const lookup = useLookup();
   const toast = useToast();
   const [unitId, setUnitId] = useState('');
-  useEffect(() => setUnitId(''), [tenant]);
+  const [previousTenant, setPreviousTenant] = useState(tenant);
+  if (previousTenant !== tenant) { setPreviousTenant(tenant); setUnitId(''); }
   const vacant = scope.units.filter((u) => u.status === 'vacant');
   return (
     <Dialog open={!!tenant} onClose={onClose} title="Move tenant" subtitle={tenant ? `${tenant.name} · currently ${lookup.property(tenant.propertyId)?.short} ${lookup.unit(tenant.unitId)?.code}` : ''} width={460}
@@ -173,7 +179,11 @@ function MoveTenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose:
 // ---------------------------------------------------------------- Profile
 
 export function TenantProfileScreen({ id }: { id: string }) {
-  const { state, me, approveTenant, deactivateTenant, updateTenant, addDocument } = useStore();
+  const messageTenant = useMessageTenant();
+  const { state, me, approveTenant, deactivateTenant, updateTenant, requestNewId } = useStore();
+  const openDoc = useOpenDocument();
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
   const lookup = useLookup();
   const { navigate, route } = useRouter();
   const toast = useToast();
@@ -241,8 +251,14 @@ export function TenantProfileScreen({ id }: { id: string }) {
           <KV label="Number"><Row gap={8}><T size={13.5} weight="semibold">{revealed ? t.identification.number.replace(/•+/g, '48210') : t.identification.number || '—'}</T>{canEdit && t.identification.number ? <Link size={12} onPress={() => setRevealed(!revealed)}>{revealed ? 'Hide' : 'Reveal'}</Link> : null}</Row></KV>
         </Grid>
         <Row gap={8} style={{ marginTop: 12 }} wrap>
-          {docs.filter((d) => d.folder === 'Tenant ID and KYC').slice(0, 2).map((d) => <View key={d.id} style={{ flex: 1, minWidth: 130 }}><FileRow name={d.name} kind={d.kind} meta="Identification" /></View>)}
+          {docs.filter((d) => d.folder === 'Tenant ID and KYC').slice(0, 3).map((d) => <View key={d.id} style={{ flex: 1, minWidth: 130 }}><FileRow name={d.name} kind={d.kind} meta={`Identification · ${fmtDate(d.date)}`} onPress={() => openDoc(d)} /></View>)}
         </Row>
+        {canEdit ? (
+          <Row gap={8} wrap style={{ marginTop: 12 }}>
+            {!t.identification.verified && t.status === 'active' ? <Button title="Mark ID verified" icon={ShieldCheck} size="sm" variant="soft" onPress={() => { updateTenant(t.id, { identification: { ...t.identification, verified: true } }); toast('ID marked as verified'); }} /> : null}
+            <Button title="Ask for a new ID" size="sm" variant="ghost" onPress={() => setRejectOpen(true)} />
+          </Row>
+        ) : null}
       </Card>
       <Card>
         <CardHeader title="Maintenance" right={<Link onPress={() => setTab('maintenance')}>All {reqs.length}</Link>} />
@@ -277,8 +293,9 @@ export function TenantProfileScreen({ id }: { id: string }) {
         </View>
       </Card>
       <Card>
-        <CardHeader title="Uploaded documents" right={canEdit ? <Button title="Upload" icon={Upload} size="sm" variant="secondary" onPress={() => { addDocument({ name: `Guarantor form – ${t.name}.pdf`, kind: 'pdf', folder: 'Tenant ID and KYC', linkedTo: `${prop?.short ?? ''} · ${unit?.code ?? ''}`, tenantId: t.id, propertyId: t.propertyId, sizeKb: 310 }); toast('Document uploaded'); }} /> : null} />
-        <View style={{ gap: 8 }}>{docs.slice(0, 4).map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${d.folder} · ${(d.sizeKb / 1024).toFixed(1)} MB`} />)}</View>
+        <CardHeader title="Uploaded documents" right={canEdit ? <Button title="Upload" icon={Upload} size="sm" variant="secondary" onPress={() => setUploadOpen(true)} /> : null} />
+        <View style={{ gap: 8 }}>{docs.slice(0, 4).map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${d.folder} · ${(d.sizeKb / 1024).toFixed(1)} MB`} onPress={() => openDoc(d)} />)}</View>
+        {!docs.length ? <T size={12.5} color={colors.subtext}>No documents yet.</T> : null}
       </Card>
     </Grid>
   );
@@ -295,7 +312,7 @@ export function TenantProfileScreen({ id }: { id: string }) {
         { key: 'st', title: 'Status', min: 110, render: (l) => <LeaseBadge s={leaseStatus(l)} /> },
       ]} /></Card>
     );
-    if (tab === 'documents') return <Card><Grid cols={{ mobile: 1, tablet: 2, desktop: 3 }} gap={10}>{docs.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${d.folder} · ${fmtDate(d.date)}`} />)}</Grid>{!docs.length ? <EmptyState icon={FileText} title="No documents" /> : null}</Card>;
+    if (tab === 'documents') return <Card><Grid cols={{ mobile: 1, tablet: 2, desktop: 3 }} gap={10}>{docs.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${d.folder} · ${fmtDate(d.date)}`} onPress={() => openDoc(d)} />)}</Grid>{!docs.length ? <EmptyState icon={FileText} title="No documents" /> : null}</Card>;
     if (tab === 'maintenance') return (
       <Card pad={0}><DataTable rows={reqs} keyOf={(r) => r.id} onRowPress={(r) => navigate('request', { id: r.id })} empty={<EmptyState icon={FileText} title="No requests" />} columns={[
         { key: 'i', title: 'Request', min: 90, render: (r) => <T mono size={12.5} color={colors.primary}>{r.id}</T> },
@@ -351,7 +368,7 @@ export function TenantProfileScreen({ id }: { id: string }) {
             <Row gap={8} wrap style={{ alignSelf: 'flex-start' }}>
               {t.status === 'pending' ? <Button title="Approve tenant" icon={ShieldCheck} size="sm" onPress={() => { approveTenant(t.id); toast(`${t.name} approved — lease is now active`); }} /> : null}
               <Button title="Edit" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
-              <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => navigate('communications', { tenantId: t.id })} />
+              <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => messageTenant(t.id)} />
               {t.status === 'active' ? <Button title="Move tenant" icon={ArrowLeftRight} size="sm" variant="secondary" onPress={() => setMoveOpen(true)} /> : null}
               {lease ? <Button title="Renew lease" icon={RefreshCw} size="sm" onPress={() => navigate('renew', { id: lease.id })} /> : null}
               {t.status === 'active' || t.status === 'pending' ? <Button icon={UserMinus} size="sm" variant="dangerGhost" onPress={() => confirm.ask({ title: `Deactivate ${t.name}?`, body: 'Their lease will be ended, the unit marked vacant and portal access removed.', confirm: 'Deactivate', danger: true, onConfirm: () => { deactivateTenant(t.id); toast(`${t.name} deactivated`); } })} /> : null}
@@ -366,6 +383,9 @@ export function TenantProfileScreen({ id }: { id: string }) {
       {tabContent()}
       {confirm.node}
       <MoveTenantDialog tenant={moveOpen ? t : null} onClose={() => setMoveOpen(false)} />
+      <UploadDocumentDialog open={uploadOpen} onClose={() => setUploadOpen(false)} title={`Upload for ${t.name}`}
+        folders={['Tenant ID and KYC', 'Lease agreements', 'Receipts']} target={{ tenantId: t.id, propertyId: t.propertyId, linkedTo: `${prop?.short ?? ''} · ${unit?.code ?? ''}` }} />
+      <RequestIdDialog open={rejectOpen} name={t.name} onClose={() => setRejectOpen(false)} onSend={(reason) => { requestNewId(t.id, reason); setRejectOpen(false); toast(`${t.name.split(' ')[0]} was asked for a new ID`); }} />
       <Dialog open={editOpen} onClose={() => setEditOpen(false)} title="Edit tenant" subtitle={t.code} footer={<><Button title="Cancel" variant="secondary" onPress={() => setEditOpen(false)} /><Button title="Save changes" onPress={() => { updateTenant(t.id, { name: form.name, email: form.email, phone: form.phone, address: form.address, nextOfKin: { ...t.nextOfKin, name: form.kinName, phone: form.kinPhone, relationship: form.kinRel } }); setEditOpen(false); toast('Tenant details saved'); }} /></>}>
         <View style={{ gap: 14 }}>
           <Input label="Full name" value={form.name} onChangeText={(v) => setForm({ ...form, name: v })} />
@@ -378,6 +398,25 @@ export function TenantProfileScreen({ id }: { id: string }) {
         </View>
       </Dialog>
     </Page>
+  );
+}
+
+const ID_PROBLEMS = ['The photo is blurred or unreadable', 'Part of the ID is cut off', 'The ID has expired', 'The name doesn’t match the tenancy', 'Wrong document type'];
+
+/** KYC rejection: pick or write a reason; the tenant gets it with a link to upload again. */
+function RequestIdDialog({ open, name, onClose, onSend }: { open: boolean; name: string; onClose: () => void; onSend: (reason: string) => void }) {
+  const [problem, setProblem] = useState(ID_PROBLEMS[0]);
+  const [note, setNote] = useState('');
+  const reason = `${problem}.${note.trim() ? ` ${note.trim()}` : ''} Upload a clear photo or scan of a valid ID from Documents in your portal.`;
+  return (
+    <Dialog open={open} onClose={onClose} title="Ask for a new ID" subtitle={`${name} will be notified and the ID marked as not verified.`} width={460}
+      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Send request" onPress={() => { onSend(reason); setNote(''); }} /></>}>
+      <View style={{ gap: 14 }}>
+        <Select label="What’s wrong?" value={problem} onChange={setProblem} options={ID_PROBLEMS.map((p) => ({ value: p, label: p }))} />
+        <Input label="Note to the tenant" optional multiline value={note} onChangeText={setNote} placeholder="e.g. Please send your international passport instead." />
+        <Notice tone="info">{reason}</Notice>
+      </View>
+    </Dialog>
   );
 }
 
@@ -402,6 +441,9 @@ function emptyDraft(startedBy: string, unitId?: string, state?: ReturnType<typeo
 
 export function OnboardingScreen() {
   const { state, me, saveDraft, discardDraft, submitOnboarding } = useStore();
+  // Picked files stay on this device until submit; a saved draft only remembers which were chosen.
+  const [files, setFiles] = useState<OnboardingFiles>({});
+  const [submitting, setSubmitting] = useState(false);
   const scope = useScope();
   const lookup = useLookup();
   const { navigate, route, back } = useRouter();
@@ -421,6 +463,22 @@ export function OnboardingScreen() {
   const setI = (k: keyof OnboardingDraft['id_'], v: string | boolean) => setD((s) => ({ ...s, id_: { ...s.id_, [k]: v } }));
   const setA = (patch: Partial<OnboardingDraft['allocation']>) => setD((s) => ({ ...s, allocation: { ...s.allocation, ...patch } }));
   const setL = (patch: Partial<OnboardingDraft['lease']>) => setD((s) => ({ ...s, lease: { ...s.lease, ...patch } }));
+  const setFile = (k: keyof OnboardingFiles, f?: PickedFile) => {
+    setFiles((x) => ({ ...x, [k]: f }));
+    if (k === 'idFront') setI('docUploaded', !!f);
+    if (k === 'photo') setI('photoUploaded', !!f);
+    if (k === 'agreement') setL({ agreementUploaded: !!f });
+  };
+  const pickPassport = async (source: 'camera' | 'library') => {
+    const r = await pickPhotos(source);
+    if ('error' in r) { toast(r.error, 'danger'); return; }
+    const f = r.files[0];
+    if (!f) return;
+    const problem = checkFile(f, 'documents', ACCEPT.images);
+    if (problem) toast(problem, 'danger');
+    else setFile('photo', f);
+  };
+  const filesLost = !!existing && (existing.id_.docUploaded || existing.id_.photoUploaded || existing.lease.agreementUploaded) && !files.idFront && !files.photo && !files.agreement;
 
   const validate = (n: number): Record<string, string> => {
     const e: Record<string, string> = {};
@@ -442,8 +500,8 @@ export function OnboardingScreen() {
     }
     if (n === 4) {
       if (!d.id_.number.trim()) e.idNumber = 'Enter the ID number.';
-      if (!d.id_.docUploaded) e.idDoc = 'Upload the identification document.';
-      if (!d.id_.photoUploaded) e.photo = 'Upload a passport photograph.';
+      if (!files.idFront) e.idDoc = 'Upload the identification document.';
+      if (!files.photo) e.photo = 'Upload a passport photograph.';
     }
     if (n === 5 && !d.allocation.unitId) e.unit = 'Choose a vacant flat.';
     if (n === 6) {
@@ -466,15 +524,19 @@ export function OnboardingScreen() {
   const save = () => { saveDraft(d); setSaved(new Date().toISOString()); toast('Draft saved'); };
   const submit = (approve: boolean) => {
     for (let s = 1; s <= 6; s++) { const e = validate(s); if (Object.keys(e).length) { setErrors(e); setD((x) => ({ ...x, step: s })); toast('Some details are missing', 'danger'); return; } }
-    submitOnboarding(d, approve).then((id) => {
-      toast(approve ? `${d.personal.name} approved` : `Sent to the landlord for approval`);
+    setSubmitting(true);
+    submitOnboarding(d, approve, files).then(({ id, uploadError }) => {
+      if (uploadError) toast(uploadError, 'danger');
+      else toast(approve ? `${d.personal.name} approved` : `Sent to the landlord for approval`);
       navigate('tenant', { id });
-    }, (e: unknown) => toast(`Couldn’t save the tenant: ${e instanceof Error ? e.message : e}`, 'danger'));
+    }, (e: unknown) => {
+      setSubmitting(false);
+      toast(`Couldn’t save the tenant: ${e instanceof Error ? e.message : e}`, 'danger');
+    });
   };
 
   const unit = lookup.unit(d.allocation.unitId);
   const prop = lookup.property(d.allocation.propertyId);
-  const block = lookup.block(d.allocation.blockId);
 
   const stepper = (
     <Card pad={12} style={{ marginBottom: 16 }}>
@@ -571,8 +633,9 @@ export function OnboardingScreen() {
       );
       case 4: return (
         <>
-          <CardHeader title="Identification" subtitle="Documents are encrypted and visible to admins and the assigned manager only." />
+          <CardHeader title="Identification" subtitle="Stored privately. Only admins, the property’s manager and the tenant can open them." />
           <View style={{ gap: 14 }}>
+            {filesLost ? <Notice tone="warning">Files aren’t saved with drafts. Choose the ID and photo again.</Notice> : null}
             <Grid cols={{ mobile: 1, tablet: 2 }} gap={14}>
               <Select label="Identification type" required value={d.id_.type} onChange={(v) => setI('type', v)} options={['National ID (NIN slip)', 'International passport', "Driver's licence", "Voter's card"].map((x) => ({ value: x, label: x }))} />
               <Input label="National ID / Passport number" required value={d.id_.number} onChangeText={(v) => setI('number', v)} error={errors.idNumber} placeholder="NIN 4821•••903" />
@@ -580,23 +643,22 @@ export function OnboardingScreen() {
             <Grid cols={{ mobile: 1, tablet: 2 }} gap={14}>
               <View style={{ gap: 8 }}>
                 <T size={12.5} weight="semibold" color={colors.textSoft}>Upload identification <T size={12.5} color={colors.danger}>*</T></T>
-                {d.id_.docUploaded
-                  ? <FileRow name="nin-slip-front.jpg" kind="jpg" meta="1.8 MB · uploaded" right={<Row gap={8}><CircleCheck size={16} color={colors.success} /><Touch onPress={() => setI('docUploaded', false)}><X size={15} color={colors.subtext} /></Touch></Row>} />
-                  : <Touch onPress={() => setI('docUploaded', true)} style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: errors.idDoc ? colors.danger : colors.borderStrong, borderRadius: radius.md, padding: 16, alignItems: 'center', gap: 4 }} hoverStyle={{ borderColor: colors.primary }}><Upload size={16} color={colors.subtext} /><T size={12.5} weight="semibold">Upload front of ID</T><T size={11} color={colors.subtext}>JPG, PNG or PDF up to 10 MB</T></Touch>}
-                <Link size={12} onPress={() => toast('Back of ID added')}>+ Add back of ID (optional)</Link>
+                <FileSlot file={files.idFront} onChange={(f) => setFile('idFront', f)} accept={ID_TYPES} title="Upload front of ID" hint="Photo or PDF up to 20 MB" error={errors.idDoc} camera />
+                <FileSlot file={files.idBack} onChange={(f) => setFile('idBack', f)} accept={ID_TYPES} title="Back of ID (optional)" hint="Only if the ID has details on the back" camera />
                 {errors.idDoc ? <T size={11.5} color={colors.danger}>{errors.idDoc}</T> : null}
               </View>
               <View style={{ gap: 8 }}>
                 <T size={12.5} weight="semibold" color={colors.textSoft}>Upload passport photograph <T size={12.5} color={colors.danger}>*</T></T>
                 <Row gap={12}>
-                  <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: d.id_.photoUploaded ? colors.infoSoft : colors.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: errors.photo ? colors.danger : colors.border }}>
-                    {d.id_.photoUploaded ? <T size={20} weight="bold" color={colors.info}>{d.personal.name ? d.personal.name.split(' ').map((x) => x[0]).slice(0, 2).join('') : 'SA'}</T> : <Upload size={16} color={colors.faint} />}
+                  <View style={{ width: 64, height: 64, borderRadius: radius.md, backgroundColor: colors.cardAlt, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: errors.photo ? colors.danger : colors.border, overflow: 'hidden' }}>
+                    {files.photo ? <Image source={{ uri: files.photo.uri }} style={{ width: 64, height: 64 }} contentFit="cover" accessibilityLabel="Passport photograph" /> : <Upload size={16} color={colors.faint} />}
                   </View>
                   <View style={{ flex: 1, gap: 6 }}>
                     <T size={11.5} color={colors.subtext}>Plain background, face clearly visible. JPG or PNG.</T>
-                    <Row gap={10}>
-                      <Button title={d.id_.photoUploaded ? 'Replace' : 'Upload'} size="sm" variant="secondary" onPress={() => setI('photoUploaded', true)} />
-                      {d.id_.photoUploaded ? <Button title="Remove" size="sm" variant="ghost" onPress={() => setI('photoUploaded', false)} /> : null}
+                    <Row gap={10} wrap>
+                      <Button title={files.photo ? 'Replace' : 'Upload'} size="sm" variant="secondary" onPress={() => void pickPassport('library')} />
+                      {Platform.OS !== 'web' ? <Button title="Take photo" icon={Camera} size="sm" variant="ghost" onPress={() => void pickPassport('camera')} /> : null}
+                      {files.photo ? <Button title="Remove" size="sm" variant="ghost" onPress={() => setFile('photo', undefined)} /> : null}
                     </Row>
                   </View>
                 </Row>
@@ -636,13 +698,10 @@ export function OnboardingScreen() {
                 <KV label="Annual rent" value={naira(unit.rent)} /><KV label="Service charge" value={naira(unit.serviceCharge)} /><KV label="Caution deposit" value={naira(unit.deposit)} /><KV label="Payment" value="Annually, in advance" />
               </Grid>
             ) : null}
-            {d.lease.agreementUploaded
-              ? <FileRow name={`Tenancy agreement – ${d.personal.name || 'tenant'}.pdf`} kind="pdf" meta="Signed agreement · 2.4 MB" right={<Touch onPress={() => setL({ agreementUploaded: false })}><X size={15} color={colors.subtext} /></Touch>} />
-              : <Touch onPress={() => setL({ agreementUploaded: true })} style={{ flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, borderRadius: radius.md, padding: 14 }} hoverStyle={{ borderColor: colors.primary }}>
-                  <IconTile icon={Upload} tone="neutral" size={32} />
-                  <View style={{ flex: 1 }}><T size={13} weight="semibold">Drop the signed agreement here</T><T size={11.5} color={colors.subtext}>PDF up to 20 MB · or <T size={11.5} weight="semibold" color={colors.primary}>browse</T></T></View>
-                  <Badge label="E-signature · Phase 2" tone="neutral" size="sm" />
-                </Touch>}
+            <View style={{ gap: 6 }}>
+              <T size={12.5} weight="semibold" color={colors.textSoft}>Signed tenancy agreement <T size={12.5} color={colors.subtext}>(optional)</T></T>
+              <FileSlot file={files.agreement} onChange={(f) => setFile('agreement', f)} accept={DOC_TYPES} title="Choose the signed agreement" hint="PDF, Word or photo up to 20 MB. You can also add it later from the lease." />
+            </View>
           </View>
         </>
       );
@@ -658,9 +717,9 @@ export function OnboardingScreen() {
               <ReviewBlock title="Personal information" onEdit={() => go(1)} items={[['Date of birth', fmtDate(d.personal.dob)], ['Address', d.personal.address]]} />
               <ReviewBlock title="Next of kin" onEdit={() => go(2)} items={[['Name', d.kin.name], ['Relationship', d.kin.relationship]]} />
               <ReviewBlock title="Employment" onEdit={() => go(3)} items={[['Employer', d.employment.employer || d.employment.status], ['Occupation', d.employment.occupation || '—']]} />
-              <ReviewBlock title="Identification" onEdit={() => go(4)} items={[['Type', d.id_.type.split(' (')[0]], ['Documents', `${d.id_.docUploaded ? 'ID' : ''}${d.id_.photoUploaded ? ' + photo ✓' : ''}`]]} />
+              <ReviewBlock title="Identification" onEdit={() => go(4)} items={[['Type', d.id_.type.split(' (')[0]], ['Documents', [files.idFront && 'ID front', files.idBack && 'ID back', files.photo && 'photo'].filter(Boolean).join(' + ') || 'None chosen']]} />
             </Grid>
-            <ReviewBlock title="Lease" onEdit={() => go(6)} items={[['Start', fmtPadded(d.lease.start)], ['End', fmtPadded(d.lease.end)], ['Duration', `${Math.round(daysBetween(d.lease.start, d.lease.end) / 30.4)} months`], ['Agreement', d.lease.agreementUploaded ? 'Uploaded ✓' : 'Not uploaded']]} />
+            <ReviewBlock title="Lease" onEdit={() => go(6)} items={[['Start', fmtPadded(d.lease.start)], ['End', fmtPadded(d.lease.end)], ['Duration', `${Math.round(daysBetween(d.lease.start, d.lease.end) / 30.4)} months`], ['Agreement', files.agreement ? files.agreement.name : 'Not added']]} />
           </View>
         </>
       );
@@ -703,8 +762,8 @@ export function OnboardingScreen() {
         {step > 1 ? <Button title="Previous" icon={ChevronLeft} variant="secondary" onPress={() => go(step - 1)} /> : null}
         {step < 7 ? <Button title="Next" iconRight={ChevronRight} onPress={() => go(step + 1)} /> : (
           <>
-            <Button title="Submit for approval" variant="secondary" onPress={() => submit(false)} />
-            {isAdmin ? <Button title="Approve tenant" icon={Check} onPress={() => submit(true)} /> : null}
+            <Button title={submitting ? 'Uploading…' : 'Submit for approval'} variant="secondary" disabled={submitting} onPress={() => submit(false)} />
+            {isAdmin ? <Button title="Approve tenant" icon={Check} disabled={submitting} loading={submitting} onPress={() => submit(true)} /> : null}
           </>
         )}
       </StickyFooter>
@@ -721,7 +780,7 @@ export function OnboardingScreen() {
   );
 }
 
-function ReviewBlock({ title, items, onEdit }: { title: string; items: Array<[string, string]>; onEdit: () => void }) {
+function ReviewBlock({ title, items, onEdit }: { title: string; items: [string, string][]; onEdit: () => void }) {
   return (
     <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 14, flex: 1 }}>
       <Row justify="space-between" style={{ marginBottom: 10 }}><T size={12.5} weight="semibold">{title}</T><Link size={12} onPress={onEdit}>Edit</Link></Row>

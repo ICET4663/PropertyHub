@@ -127,7 +127,7 @@ export interface Lease {
 
 export type LeaseStatus = 'active' | 'expiring' | 'expired' | 'terminated' | 'renewed' | 'draft';
 
-export type RequestStatus = 'new' | 'assigned' | 'in_progress' | 'resolved' | 'closed';
+export type RequestStatus = 'new' | 'assigned' | 'in_progress' | 'resolved' | 'closed' | 'disputed' | 'cancelled';
 export type Priority = 'low' | 'medium' | 'high' | 'urgent';
 export type Category =
   | 'Plumbing' | 'Electrical' | 'Air conditioning' | 'Generator' | 'Water supply'
@@ -141,6 +141,7 @@ export interface RequestEvent {
   at: string;
   internal?: boolean;
   shared?: boolean;
+  actorId?: string; // profile that made the change, set by the server
 }
 
 export interface MaintenanceRequest {
@@ -155,7 +156,10 @@ export interface MaintenanceRequest {
   priority: Priority;
   status: RequestStatus;
   vendorId?: string;
+  caretakerId?: string; // profile id
   visit?: { date: string; window: string };
+  disputeReason?: string;
+  clientKey?: string; // idempotency key of the submission that created it
   createdAt: string;
   updatedAt: string;
   resolvedAt?: string;
@@ -190,7 +194,7 @@ export interface Announcement {
   message: string;
   audience: string;
   propertyId?: string;
-  channels: Array<'In-app' | 'Email' | 'SMS' | 'WhatsApp'>;
+  channels: ('In-app' | 'Email' | 'SMS' | 'WhatsApp')[];
   sentAt: string;
   recipients: number;
   readPct: number;
@@ -211,6 +215,7 @@ export interface DocFile {
   date: string;
   sizeKb: number;
   expires?: string;
+  storagePath?: string; // object in the `documents` bucket; older seeded records have none
 }
 
 export type NotifCategory = 'Maintenance' | 'Leases' | 'Rent' | 'Tenants' | 'System' | 'Announcement' | 'My requests';
@@ -237,6 +242,27 @@ export interface Payment {
   date: string;
   method: string;
   status: 'paid' | 'overdue' | 'pending';
+  /** Set by the server when Paystack confirms; charges paid by hand have neither. */
+  paidAt?: string;
+  reference?: string;
+}
+
+export type PaystackStatus = 'pending' | 'success' | 'failed' | 'abandoned' | 'refunded';
+
+/** One attempt to pay a charge through Paystack. Written only by the server. */
+export interface PaystackTransaction {
+  reference: string;
+  paymentId: string;
+  tenantId: string;
+  amount: number;
+  currency: string;
+  status: PaystackStatus;
+  channel?: string;
+  fees?: number;
+  gatewayResponse?: string;
+  paidAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ActivityLog {
@@ -293,6 +319,7 @@ export interface AppState {
   documents: DocFile[];
   notifications: AppNotification[];
   payments: Payment[];
+  transactions: PaystackTransaction[];
   logs: ActivityLog[];
   settings: Settings;
   drafts: OnboardingDraft[];

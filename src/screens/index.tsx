@@ -1,15 +1,23 @@
-import React, { useEffect } from 'react';
-import { View } from 'react-native';
+/**
+ * Which screen each route name shows, and to whom. The files in src/app only call authRoute() or
+ * appRoute(), so the access rules stay here in one place.
+ */
+import React from 'react';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import { useStore } from '../store/AppContext';
-import { useRouter } from '../nav/router';
-import { AppShell, homeRouteFor, useCanAccess } from '../components/shell';
+import { hrefFor } from '../nav/router';
+import { homeRouteFor, useCanAccess } from '../components/shell';
 import * as Auth from './auth';
 import DashboardScreen from './staff/Dashboard';
 import { AddPropertyScreen, PropertiesScreen, PropertyDetailScreen } from './staff/Properties';
 import { BlocksUnitsScreen, LocationsScreen, UnitDetailScreen } from './staff/Portfolio';
+import { MyAccountScreen } from './staff/Account';
 import { OnboardingScreen, TenantProfileScreen, TenantsScreen } from './staff/Tenants';
 import { LeaseDetailScreen, LeasesScreen, RenewLeaseScreen } from './staff/Leases';
 import { MaintenanceOverviewScreen, RequestDetailScreen, RequestsScreen, VendorsScreen } from './staff/Maintenance';
+import { ContactsScreen, JobsScreen } from './staff/Caretaker';
+import { PaymentsScreen } from './staff/Payments';
+import { MessagesScreen } from './Messages';
 import {
   ActivityLogsScreen, CommunicationsScreen, DocumentsScreen, HelpScreen, NotificationsScreen, ReportsScreen, SettingsScreen, UsersScreen,
 } from './staff/Admin';
@@ -28,32 +36,31 @@ const AUTH: Record<string, React.ComponentType> = {
   twoStep: Auth.TwoStepScreen,
 };
 
-/** Screens that take an `id` route param. */
-function withId(C: React.ComponentType<{ id: string }>) {
-  return function WithId() {
-    const { route } = useRouter();
-    return <C id={route.params.id ?? ''} />;
-  };
-}
+/** Signed-in screens get the `id` route param; screens that don't need it ignore it. */
+type AppScreen = React.ComponentType<{ id: string }>;
 
-const STAFF: Record<string, React.ComponentType> = {
+const STAFF: Record<string, AppScreen> = {
   dashboard: DashboardScreen,
   properties: PropertiesScreen,
-  property: withId(PropertyDetailScreen),
+  property: PropertyDetailScreen,
   addProperty: AddPropertyScreen,
   locations: LocationsScreen,
   units: BlocksUnitsScreen,
-  unit: withId(UnitDetailScreen),
+  unit: UnitDetailScreen,
   tenants: TenantsScreen,
-  tenant: withId(TenantProfileScreen),
+  tenant: TenantProfileScreen,
   onboarding: OnboardingScreen,
   leases: LeasesScreen,
-  lease: withId(LeaseDetailScreen),
-  renew: withId(RenewLeaseScreen),
+  lease: LeaseDetailScreen,
+  renew: RenewLeaseScreen,
+  payments: PaymentsScreen,
   maintenance: MaintenanceOverviewScreen,
   requests: RequestsScreen,
-  request: withId(RequestDetailScreen),
+  request: RequestDetailScreen,
   vendors: VendorsScreen,
+  jobs: JobsScreen,
+  contacts: ContactsScreen,
+  messages: MessagesScreen,
   communications: CommunicationsScreen,
   reports: ReportsScreen,
   documents: DocumentsScreen,
@@ -62,16 +69,19 @@ const STAFF: Record<string, React.ComponentType> = {
   logs: ActivityLogsScreen,
   settings: SettingsScreen,
   help: HelpScreen,
+  account: MyAccountScreen,
 };
 
-const TENANT: Record<string, React.ComponentType> = {
+const TENANT: Record<string, AppScreen> = {
   home: TenantHomeScreen,
   myLease: MyLeaseScreen,
   myRequests: MyRequestsScreen,
   reportIssue: ReportIssueScreen,
   myNotifications: TenantNotificationsScreen,
   profile: TenantProfileSelfScreen,
+  account: TenantProfileSelfScreen, // same place for every role's "my account" link
   myDocuments: TenantDocumentsScreen,
+  messages: MessagesScreen,
   help: HelpScreen,
 };
 
@@ -79,20 +89,34 @@ const TENANT: Record<string, React.ComponentType> = {
 const PERMISSION_KEY: Record<string, string> = {
   property: 'properties', addProperty: 'properties', unit: 'units', tenant: 'tenants', onboarding: 'tenants',
   lease: 'leases', renew: 'leases', request: 'maintenance', requests: 'maintenance',
+  account: 'help', // every staff role has Help, and everyone may manage their own account
 };
 
-export function AppRoutes() {
-  const { me } = useStore();
-  const { route, replace } = useRouter();
-  const table = me ? (me.role === 'tenant' ? TENANT : STAFF) : AUTH;
-  const allowed = useCanAccess(PERMISSION_KEY[route.name] ?? route.name);
-  const Screen = table[route.name];
-  const ok = !!Screen && (!me || allowed);
-
-  useEffect(() => {
-    if (!ok) replace(me ? homeRouteFor(me.role) : 'signIn');
-  }, [ok, me, replace]);
-
-  if (!me) return Screen ? <Screen /> : <View />;
-  return <AppShell>{ok ? <Screen key={JSON.stringify(route)} /> : <View />}</AppShell>;
+/** A screen behind sign-in, for some role. */
+export function isAppRoute(name: string): boolean {
+  return name in STAFF || name in TENANT;
 }
+
+/** A sign-in screen. Stack.Protected in src/app/_layout.tsx keeps signed-in users out. */
+export function authRoute(name: string): React.ComponentType {
+  return AUTH[name];
+}
+
+/**
+ * A signed-in screen: the tenant or staff version for this account's role, or back to the role's home
+ * screen when the role may not open it. Stack.Protected in src/app/_layout.tsx keeps signed-out users out.
+ */
+export function appRoute(name: string): React.ComponentType {
+  function AppRoute() {
+    const { me } = useStore();
+    const { id } = useLocalSearchParams<{ id?: string }>();
+    const allowed = useCanAccess(PERMISSION_KEY[name] ?? name);
+    if (!me) return null;
+    const Screen = (me.role === 'tenant' ? TENANT : STAFF)[name];
+    if (!Screen || !allowed) return <Redirect href={hrefFor(homeRouteFor(me.role))} />;
+    return <Screen id={id ?? ''} />;
+  }
+  AppRoute.displayName = `AppRoute(${name})`;
+  return AppRoute;
+}
+

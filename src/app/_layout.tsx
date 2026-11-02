@@ -1,17 +1,17 @@
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
+import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import {
   useFonts, PlusJakartaSans_400Regular, PlusJakartaSans_500Medium, PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold, PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import { StoreProvider, useStore } from './src/store/AppContext';
-import { RouterProvider } from './src/nav/router';
-import { ToastProvider, useToast } from './src/components/ui';
-import { AuthFlowProvider } from './src/screens/auth';
-import { AppRoutes } from './src/screens';
-import { colors } from './src/theme';
+import { StoreProvider, useStore } from '../store/AppContext';
+import { ToastProvider, useToast } from '../components/ui';
+import { colors } from '../theme';
+import { registerPush } from '../lib/push';
+import { LinkHandler } from '../nav/links';
 
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   document.title = 'PropertyHub';
@@ -32,22 +32,44 @@ function SyncErrors() {
   return null;
 }
 
-function Root() {
+/**
+ * Signed-out users can only open the (auth) screens and signed-in users only the (app) screens; when the
+ * session changes, Expo Router drops the other group's history and falls back to index, which picks the
+ * home screen. The navigator waits until the saved session is restored, so a link or a browser refresh
+ * opens the screen it names instead of bouncing through sign-in. Links opened while signed out, and
+ * notification taps, are opened after sign-in by LinkHandler.
+ */
+function RootNavigator() {
   const { hydrated, me } = useStore();
+  const userId = me?.id;
+  // Link this phone to the account for push (asks for permission the first time; no-op on the web).
+  useEffect(() => {
+    if (userId) void registerPush();
+  }, [userId]);
   if (!hydrated) {
     return <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.sidebar }}><ActivityIndicator color={colors.accent} /></View>;
   }
-  // Re-mount the router when the session changes so each role starts on its own home screen.
   return (
-    <RouterProvider key={me?.id ?? 'guest'} initial={me ? (me.role === 'tenant' ? 'home' : me.role === 'caretaker' ? 'maintenance' : 'dashboard') : 'signIn'}>
-      <AuthFlowProvider>
-        <AppRoutes />
-      </AuthFlowProvider>
-    </RouterProvider>
+    <>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+        <Stack.Screen name="index" />
+        {/* Public pages, open signed in or out. */}
+        <Stack.Screen name="welcome" />
+        <Stack.Screen name="privacy" />
+        <Stack.Screen name="terms" />
+        <Stack.Protected guard={!me}>
+          <Stack.Screen name="(auth)" />
+        </Stack.Protected>
+        <Stack.Protected guard={!!me}>
+          <Stack.Screen name="(app)" />
+        </Stack.Protected>
+      </Stack>
+      <LinkHandler />
+    </>
   );
 }
 
-export default function App() {
+export default function RootLayout() {
   const [fontsLoaded] = useFonts({
     PlusJakartaSans_400Regular, PlusJakartaSans_500Medium, PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold, PlusJakartaSans_800ExtraBold,
   });
@@ -58,7 +80,7 @@ export default function App() {
         <ToastProvider>
           <StatusBar style="dark" />
           <SyncErrors />
-          <Root />
+          <RootNavigator />
         </ToastProvider>
       </StoreProvider>
     </SafeAreaProvider>

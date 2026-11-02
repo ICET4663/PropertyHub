@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import Svg, { Circle, Line, Rect } from 'react-native-svg';
 import {
@@ -10,9 +10,10 @@ import { useRouter } from '../../nav/router';
 import { Page, PageHeader } from '../../components/shell';
 import {
   Avatar, Badge, Button, Card, CardHeader, Dialog, EmptyState, Grid, IconTile, Input, KV, Link, Notice, ProgressBar, Row, Segmented, Select, Sheet,
-  T, Touch, useConfirm, useToast, Divider,
+  T, Touch, useToast, Divider,
 } from '../../components/ui';
 import { DataTable, FileRow, RequestStatusBadge, UNIT_STATUS, UnitBadge } from '../../components/data';
+import { UploadDocumentDialog, useOpenDocument } from '../../components/files';
 import { usePropertyStats } from '../../lib/stats';
 import type { Location, Unit, UnitStatus, UnitType } from '../../types';
 import { daysBetween, daysUntil, fmtDate, leaseStatus, naira, pct, todayISO } from '../../utils';
@@ -156,11 +157,14 @@ function LocationSheet({ location, onClose, onSave, onDelete, propertyCount }: {
   const { state } = useStore();
   const [f, setF] = useState<Omit<Location, 'id'>>({ name: '', area: '', city: 'Lagos', state: 'Lagos State', description: '', managerId: '' });
   const [err, setErr] = useState('');
-  useEffect(() => {
+  const [previousLocation, setPreviousLocation] = useState(location);
+  const [previousUsers, setPreviousUsers] = useState(state.users);
+  if (previousLocation !== location || previousUsers !== state.users) {
+    setPreviousLocation(location); setPreviousUsers(state.users);
     if (location && location !== 'new') { const { id: _id, ...rest } = location; setF(rest); }
     else setF({ name: '', area: '', city: 'Lagos', state: 'Lagos State', description: '', managerId: state.users.find((u) => u.role === 'manager')?.id ?? '' });
     setErr('');
-  }, [location, state.users]);
+  }
   const isNew = location === 'new';
   return (
     <Sheet open={!!location} onClose={onClose}>
@@ -224,7 +228,8 @@ export function BlocksUnitsScreen() {
   const unit = state.units.find((u) => u.id === selectedUnit);
   const tenantOf = (u: Unit) => state.tenants.find((t) => t.unitId === u.id && t.status === 'active');
 
-  useEffect(() => { setSelectedUnit(null); setBlockFilter('all'); }, [propertyId]);
+  const [previousProperty, setPreviousProperty] = useState(propertyId);
+  if (previousProperty !== propertyId) { setPreviousProperty(propertyId); setSelectedUnit(null); setBlockFilter('all'); }
 
   const tree = (
     <Card pad={10} style={{ width: bp === 'desktop' ? 250 : '100%' }}>
@@ -382,7 +387,11 @@ export function BlocksUnitsScreen() {
 function AddBlockDialog({ open, onClose, onAdd, existing }: { open: boolean; onClose: () => void; onAdd: (name: string, floors: number) => void; existing: number }) {
   const [name, setName] = useState('');
   const [floors, setFloors] = useState('4');
-  useEffect(() => { if (open) { setName(`Block ${String.fromCharCode(65 + existing)}`); setFloors('4'); } }, [open, existing]);
+  const [previous, setPrevious] = useState({ open: false, existing });
+  if (previous.open !== open || previous.existing !== existing) {
+    setPrevious({ open, existing });
+    if (open) { setName(`Block ${String.fromCharCode(65 + existing)}`); setFloors('4'); }
+  }
   return (
     <Dialog open={open} onClose={onClose} title="Add block" width={420} footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Add block" onPress={() => name.trim() && onAdd(name.trim(), Math.max(1, parseInt(floors, 10) || 1))} /></>}>
       <View style={{ gap: 14 }}>
@@ -398,13 +407,16 @@ function AddUnitDialog({ open, onClose, onAdd, propertyId }: { open: boolean; on
   const blocks = state.blocks.filter((b) => b.propertyId === propertyId);
   const [f, setF] = useState({ blockId: '', code: '', floor: '0', type: '2 Bedroom' as UnitType, rent: '', service: '', size: '96' });
   const [err, setErr] = useState('');
-  useEffect(() => {
-    if (!open) return;
-    const b = blocks[0];
-    const n = b ? state.units.filter((u) => u.blockId === b.id).length + 1 : 1;
-    setF({ blockId: b?.id ?? '', code: b ? `${b.name.replace('Block ', '')}${n}` : '', floor: '0', type: '2 Bedroom', rent: '2400000', service: '250000', size: '96' });
-    setErr('');
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [previousOpen, setPreviousOpen] = useState(false);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open) {
+      const b = blocks[0];
+      const n = b ? state.units.filter((u) => u.blockId === b.id).length + 1 : 1;
+      setF({ blockId: b?.id ?? '', code: b ? `${b.name.replace('Block ', '')}${n}` : '', floor: '0', type: '2 Bedroom', rent: '2400000', service: '250000', size: '96' });
+      setErr('');
+    }
+  }
   const submit = () => {
     if (!f.blockId || !f.code.trim()) { setErr('Choose a block and enter a unit number.'); return; }
     if (state.units.some((u) => u.propertyId === propertyId && u.code.toLowerCase() === f.code.trim().toLowerCase())) { setErr(`Unit ${f.code} already exists in this property.`); return; }
@@ -436,7 +448,9 @@ function AddUnitDialog({ open, onClose, onAdd, propertyId }: { open: boolean; on
 // ---------------------------------------------------------------- Unit details
 
 export function UnitDetailScreen({ id }: { id: string }) {
-  const { state, me, updateUnit, addDocument } = useStore();
+  const { state, me, updateUnit } = useStore();
+  const openDoc = useOpenDocument();
+  const [uploadOpen, setUploadOpen] = useState(false);
   const lookup = useLookup();
   const { navigate } = useRouter();
   const toast = useToast();
@@ -452,7 +466,7 @@ export function UnitDetailScreen({ id }: { id: string }) {
   const lease = tenant ? lookup.currentLease(tenant.id) : undefined;
   const history = state.leases.filter((l) => l.unitId === unit.id).sort((a, b) => (a.start < b.start ? 1 : -1));
   const reqs = state.requests.filter((r) => r.unitId === unit.id);
-  const docs = state.documents.filter((d) => tenant && d.tenantId === tenant.id).slice(0, 4);
+  const docs = state.documents.filter((d) => (tenant && d.tenantId === tenant.id) || (d.propertyId === prop.id && d.linkedTo === `${prop.short} · ${unit.code}`)).slice(0, 4);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
   const total = lease ? daysBetween(lease.start, lease.end) : 1;
   const elapsed = lease ? Math.max(0, total - daysUntil(lease.end)) : 0;
@@ -546,9 +560,9 @@ export function UnitDetailScreen({ id }: { id: string }) {
             <Notice tone="info" style={{ marginTop: 14 }}>Online rent collection will appear here in Phase 2.</Notice>
           </Card>
           <Card>
-            <CardHeader title="Documents" right={canEdit ? <Button title="Upload" icon={Upload} size="sm" variant="secondary" onPress={() => { addDocument({ name: `Unit ${unit.code} inspection ${new Date().getFullYear()}.pdf`, kind: 'pdf', folder: 'Property papers', linkedTo: `${prop.short} · ${unit.code}`, propertyId: prop.id, tenantId: tenant?.id, sizeKb: 820 }); toast('Document uploaded'); }} /> : null} />
+            <CardHeader title="Documents" right={canEdit ? <Button title="Upload" icon={Upload} size="sm" variant="secondary" onPress={() => setUploadOpen(true)} /> : null} />
             <View style={{ gap: 8 }}>
-              {docs.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${d.folder}`} />)}
+              {docs.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${d.folder}`} onPress={() => openDoc(d)} />)}
               {!docs.length ? <T size={12.5} color={colors.subtext}>No documents yet.</T> : null}
             </View>
           </Card>
@@ -566,6 +580,9 @@ export function UnitDetailScreen({ id }: { id: string }) {
           <Input label="Service charge (₦/yr)" value={service} onChangeText={setService} keyboardType="number-pad" />
         </View>
       </Dialog>
+      <UploadDocumentDialog open={uploadOpen} onClose={() => setUploadOpen(false)} title={`Upload for unit ${unit.code}`}
+        folders={tenant ? ['Property papers', 'Lease agreements', 'Tenant ID and KYC', 'Receipts'] : ['Property papers']}
+        target={{ propertyId: prop.id, tenantId: tenant?.id, linkedTo: `${prop.short} · ${unit.code}` }} />
     </Page>
   );
 }

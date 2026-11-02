@@ -1,3 +1,4 @@
+import { useNow } from '../../hooks/useNow';
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import {
@@ -15,6 +16,7 @@ import {
 } from '../../components/ui';
 import type { Tone } from '../../components/ui';
 import { DataTable, FileIcon, Pagination, usePaged } from '../../components/data';
+import { UploadDocumentDialog, useOpenDocument } from '../../components/files';
 import { TrackBars } from '../../components/charts';
 import { usePortfolio, usePropertyStats } from '../../lib/stats';
 import { downloadCSV, printPage } from '../../lib/export';
@@ -85,7 +87,7 @@ export function CommunicationsScreen() {
 
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Communications' }]} title="Communications"
+      <PageHeader crumbs={[{ label: 'Messages', to: 'messages' }, { label: 'Announcements' }]} title="Announcements"
         actions={<Segmented value={tab} onChange={setTab} options={[{ value: 'new', label: 'New announcement' }, { value: 'sent', label: `Sent (${sent.length})` }, { value: 'scheduled', label: `Scheduled (${scheduled.length})` }, { value: 'templates', label: 'Templates' }]} />} />
       {tab === 'sent' ? history(sent) : tab === 'scheduled' ? history(scheduled) : tab === 'templates' ? history(templates) : (
         <View style={{ flexDirection: bp === 'desktop' ? 'row' : 'column', gap: 16, alignItems: 'flex-start' }}>
@@ -93,7 +95,7 @@ export function CommunicationsScreen() {
             <CardHeader title="Write an announcement" />
             <T size={12.5} weight="semibold" color={colors.textSoft} style={{ marginBottom: 8 }}>Send to</T>
             <Row wrap gap={8}>
-              {([['all', 'All tenants'], ['property', 'A property'], ['block', 'A block'], ['selected', 'Selected tenants'], ['overdue', 'Tenants with overdue rent']] as Array<[Audience, string]>).map(([k, l]) => <Chip key={k} label={l} active={audience === k} onPress={() => { setAudience(k); if (k === 'block' && blockId === 'all') setBlockId(scope.blocks[0]?.id ?? 'all'); }} />)}
+              {([['all', 'All tenants'], ['property', 'A property'], ['block', 'A block'], ['selected', 'Selected tenants'], ['overdue', 'Tenants with overdue rent']] as [Audience, string][]).map(([k, l]) => <Chip key={k} label={l} active={audience === k} onPress={() => { setAudience(k); if (k === 'block' && blockId === 'all') setBlockId(scope.blocks[0]?.id ?? 'all'); }} />)}
             </Row>
             {audience === 'property' || audience === 'block' ? (
               <Row gap={12} style={{ marginTop: 12 }} align="flex-start">
@@ -187,7 +189,7 @@ export function ReportsScreen() {
   const collected = state.payments.filter((p) => p.status === 'paid' && parseDate(p.date).getFullYear() === new Date().getFullYear() && scope.tenants.some((t) => t.id === p.tenantId));
 
   const exportExcel = () => {
-    let rows: Array<Record<string, string | number | undefined>> = [];
+    let rows: Record<string, string | number | undefined>[] = [];
     if (tab === 'occupancy') rows = visibleProps.map((p) => ({ Property: p.property.name, Units: p.total, Occupied: p.occupied, Vacant: p.vacant, Maintenance: p.maintenance, Occupancy: pct(p.occupied, p.total) }));
     else if (tab === 'rent') rows = [...overdue.map((p) => ({ Tenant: lookup.tenant(p.tenantId)?.name, Type: p.label, Amount: p.amount, Date: p.date, Status: 'Overdue' })), ...collected.map((p) => ({ Tenant: lookup.tenant(p.tenantId)?.name, Type: p.label, Amount: p.amount, Date: p.date, Status: 'Paid' }))];
     else if (tab === 'leases') rows = pf.leaseDays.filter((x) => x.d <= 120).map((x) => ({ Lease: x.l.id, Tenant: lookup.tenant(x.l.tenantId)?.name, Property: lookup.property(x.l.propertyId)?.name, Unit: lookup.unit(x.l.unitId)?.code, End: x.l.end, 'Days left': x.d }));
@@ -336,14 +338,15 @@ export function ReportsScreen() {
 
 // ---------------------------------------------------------------- Documents
 
-const FOLDERS: Array<{ key: DocFile['folder'] | 'all'; label: string; icon: any }> = [
+const FOLDERS: { key: DocFile['folder'] | 'all'; label: string; icon: any }[] = [
   { key: 'all', label: 'All documents', icon: Folder }, { key: 'Lease agreements', label: 'Lease agreements', icon: FileText }, { key: 'Tenant ID and KYC', label: 'Tenant ID and KYC', icon: Users },
   { key: 'Receipts', label: 'Receipts', icon: Receipt }, { key: 'Property papers', label: 'Property papers', icon: Building2 }, { key: 'Maintenance', label: 'Maintenance', icon: Wrench }, { key: 'Vendor contracts', label: 'Vendor contracts', icon: FileText },
 ];
 
 export function DocumentsScreen() {
-  const { state, addDocument } = useStore();
+  const { me } = useStore();
   const scope = useScope();
+  const openDoc = useOpenDocument();
   const { route } = useRouter();
   const toast = useToast();
   const { bp } = useBreakpoint();
@@ -361,7 +364,7 @@ export function DocumentsScreen() {
   return (
     <Page>
       <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Documents' }]} title="Documents"
-        actions={<><Button title="New folder" icon={FolderPlus} variant="secondary" onPress={() => toast('Folders are managed by your administrator in this version', 'info')} /><Button title="Upload" icon={Upload} onPress={() => setUploadOpen(true)} /></>} />
+        actions={<><Button title="New folder" icon={FolderPlus} variant="secondary" onPress={() => toast('Folders are managed by your administrator in this version', 'info')} />{me?.role !== 'accountant' && me?.role !== 'caretaker' ? <Button title="Upload" icon={Upload} onPress={() => setUploadOpen(true)} /> : null}</>} />
       <View style={{ flexDirection: bp === 'mobile' ? 'column' : 'row', gap: 16, alignItems: 'flex-start' }}>
         <Card pad={10} style={{ width: bp === 'mobile' ? '100%' : 230 }}>
           {FOLDERS.map((f) => {
@@ -387,52 +390,33 @@ export function DocumentsScreen() {
             <View style={{ flexBasis: 110, flexGrow: 1 }}><Select compact value={kind} onChange={setKind} options={[{ value: 'all', label: 'Any type' }, { value: 'pdf', label: 'PDF' }, { value: 'jpg', label: 'Image' }, { value: 'doc', label: 'Word' }]} /></View>
             <Chip label={`Expiring IDs (${expCount})`} icon={TriangleAlert} active={expiring} onPress={() => setExpiring(!expiring)} />
           </View>
-          <DataTable rows={pg.slice} keyOf={(d) => d.id} empty={<EmptyState icon={Folder} title="No documents" body="Upload a file or change the filters." />} columns={[
+          <DataTable rows={pg.slice} keyOf={(d) => d.id} onRowPress={(d) => openDoc(d)} empty={<EmptyState icon={Folder} title="No documents" body="Upload a file or change the filters." />} columns={[
             { key: 'n', title: 'Name', flex: 2.2, min: 240, render: (d) => <Row gap={10}><FileIcon kind={d.kind} size={28} /><T size={12.5} weight="semibold" style={{ flex: 1 }} numberOfLines={1}>{d.name}</T>{d.expires && daysUntil(d.expires) <= 30 ? <Badge label={`Expires ${fmtShort(d.expires)}`} tone="warning" size="sm" /> : null}</Row> },
             { key: 'l', title: 'Linked to', flex: 1.2, min: 140, render: (d) => <T size={12.5} color={colors.textSoft} numberOfLines={1}>{d.linkedTo}</T> },
             { key: 'f', title: 'Folder', flex: 1.1, min: 130, render: (d) => <T size={12.5} color={colors.textSoft}>{d.folder}</T> },
             { key: 'u', title: 'Uploaded by', min: 110, render: (d) => <T size={12.5} color={colors.textSoft}>{d.uploadedBy}</T> },
             { key: 'd', title: 'Date', min: 100, render: (d) => <T size={12.5} color={colors.textSoft}>{fmtDate(d.date)}</T> },
-            { key: 'a', title: '', min: 50, flex: 0.3, align: 'right', render: (d) => <Touch onPress={() => toast(`Downloading ${d.name}`)} style={{ padding: 6 }}><Download size={15} color={colors.subtext} /></Touch> },
+            { key: 'a', title: '', min: 50, flex: 0.3, align: 'right', render: (d) => <Touch onPress={() => openDoc(d, true)} style={{ padding: 6 }} accessibilityLabel={`Download ${d.name}`}><Download size={15} color={colors.subtext} /></Touch> },
           ]} />
           <Pagination page={pg.page} pages={pg.pages} onPage={pg.setPage} label={`Showing ${pg.from}–${pg.to} of ${rows.length} documents`} />
         </Card>
       </View>
-      <UploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} onUpload={(d) => { addDocument(d); toast(`${d.name} uploaded`); setUploadOpen(false); }} />
+      <UploadDocumentDialog open={uploadOpen} onClose={() => setUploadOpen(false)} folders={(folder === 'all' ? FOLDERS.slice(1) : [FOLDERS.find((f) => f.key === folder)!, ...FOLDERS.slice(1).filter((f) => f.key !== folder)]).map((f) => f.key as DocFile['folder'])}
+        properties={scope.properties.filter((p) => me?.role === 'super_admin' || me?.propertyIds?.includes(p.id)).map((p) => ({ id: p.id, label: p.short }))} />
     </Page>
   );
 }
 
-function UploadDialog({ open, onClose, onUpload }: { open: boolean; onClose: () => void; onUpload: (d: Omit<DocFile, 'id' | 'date' | 'uploadedBy'>) => void }) {
-  const scope = useScope();
-  const [name, setName] = useState('');
-  const [folder, setFolder] = useState<DocFile['folder']>('Lease agreements');
-  const [prop, setProp] = useState(scope.properties[0]?.id ?? '');
-  const [picked, setPicked] = useState(false);
-  return (
-    <Dialog open={open} onClose={onClose} title="Upload document" width={480} footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Upload" disabled={!picked || !name.trim()} onPress={() => { onUpload({ name: name.trim(), kind: name.toLowerCase().endsWith('.jpg') || name.toLowerCase().endsWith('.png') ? 'jpg' : name.toLowerCase().endsWith('.doc') || name.toLowerCase().endsWith('.docx') ? 'doc' : 'pdf', folder, linkedTo: scope.properties.find((p) => p.id === prop)?.short ?? '', propertyId: prop, sizeKb: 640 }); setPicked(false); setName(''); }} /></>}>
-      <View style={{ gap: 14 }}>
-        <Touch onPress={() => { setPicked(true); if (!name) setName('Tenancy agreement 2026.pdf'); }} style={{ borderWidth: 1.5, borderStyle: 'dashed', borderColor: picked ? colors.primary : colors.borderStrong, backgroundColor: picked ? colors.primaryTint : colors.card, borderRadius: radius.md, padding: 22, alignItems: 'center', gap: 6 }}>
-          {picked ? <Check size={18} color={colors.primary} /> : <Upload size={18} color={colors.subtext} />}
-          <T size={13} weight="semibold">{picked ? 'File ready to upload' : 'Choose a file'}</T>
-          <T size={11.5} color={colors.subtext}>PDF, JPG, PNG or Word up to 20 MB</T>
-        </Touch>
-        <Input label="File name" value={name} onChangeText={setName} />
-        <Select label="Folder" value={folder} onChange={setFolder} options={FOLDERS.filter((f) => f.key !== 'all').map((f) => ({ value: f.key as DocFile['folder'], label: f.label }))} />
-        <Select label="Property" value={prop} onChange={setProp} options={scope.properties.map((p) => ({ value: p.id, label: p.name }))} />
-      </View>
-    </Dialog>
-  );
-}
 
 // ---------------------------------------------------------------- Notifications (staff)
 
 const TONE_ICON: Record<string, any> = { Maintenance: Wrench, Leases: FileText, Rent: Receipt, Tenants: Users, System: Shield, Announcement: Megaphone, 'My requests': Wrench };
 
 export function NotificationList({ items, onOpen }: { items: AppNotification[]; onOpen: (n: AppNotification) => void }) {
+  const now = useNow();
   const today = items.filter((n) => isToday(n.at));
-  const week = items.filter((n) => !isToday(n.at) && Date.now() - parseDate(n.at).getTime() < 7 * 86400000);
-  const older = items.filter((n) => Date.now() - parseDate(n.at).getTime() >= 7 * 86400000);
+  const week = items.filter((n) => !isToday(n.at) && now - parseDate(n.at).getTime() < 7 * 86400000);
+  const older = items.filter((n) => now - parseDate(n.at).getTime() >= 7 * 86400000);
   const group = (title: string, list: AppNotification[]) => list.length ? (
     <View key={title}>
       <T size={10.5} weight="bold" color={colors.faint} upper style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 6 }}>{title}</T>
@@ -496,7 +480,7 @@ function NotifPrefsDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
 // ---------------------------------------------------------------- Users & permissions
 
-const PERMS: Array<{ label: string; cells: [string, string, string, string] }> = [
+const PERMS: { label: string; cells: [string, string, string, string] }[] = [
   { label: 'Properties, blocks and units', cells: ['Full', 'Own sites', 'View', '—'] },
   { label: 'Tenants and onboarding', cells: ['Full', 'Own sites', 'View', '—'] },
   { label: 'Leases and renewals', cells: ['Full', 'Own sites', 'View', '—'] },
@@ -647,6 +631,7 @@ function RoleDialog({ user, onClose, onSave }: { user: User; onClose: () => void
 // ---------------------------------------------------------------- Activity logs
 
 export function ActivityLogsScreen() {
+  const now = useNow();
   const { state } = useStore();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -655,7 +640,7 @@ export function ActivityLogsScreen() {
   const [range, setRange] = useState('7');
   const users = [...new Set(state.logs.map((l) => l.user))];
   const areas = [...new Set(state.logs.map((l) => l.area))];
-  const rows = state.logs.filter((l) => (!q || `${l.action} ${l.record}`.toLowerCase().includes(q.toLowerCase())) && (user === 'all' || l.user === user) && (area === 'all' || l.area === area) && (range === 'all' || Date.now() - parseDate(l.at).getTime() <= parseInt(range, 10) * 86400000));
+  const rows = state.logs.filter((l) => (!q || `${l.action} ${l.record}`.toLowerCase().includes(q.toLowerCase())) && (user === 'all' || l.user === user) && (area === 'all' || l.area === area) && (range === 'all' || now - parseDate(l.at).getTime() <= parseInt(range, 10) * 86400000));
   const pg = usePaged(rows, 12, `${q}${user}${area}${range}`);
   const areaTone: Record<string, Tone> = { Maintenance: 'accent', Leases: 'purple', Communications: 'info', Properties: 'primary', Tenants: 'success', Reports: 'neutral', Users: 'danger', Security: 'neutral' };
   return (
@@ -697,7 +682,7 @@ export function SettingsScreen() {
     { key: 'org', label: 'Organisation', icon: Building2 }, { key: 'rent', label: 'Rent and billing', icon: Receipt }, { key: 'maint', label: 'Maintenance', icon: Wrench },
     { key: 'notif', label: 'Notifications', icon: Bell }, { key: 'lease', label: 'Lease templates', icon: FileText }, { key: 'security', label: 'Security', icon: Shield }, { key: 'integrations', label: 'Integrations', icon: Plug },
   ];
-  const prio: Array<{ k: Priority; label: string; sub: string; tone: Tone }> = [
+  const prio: { k: Priority; label: string; sub: string; tone: Tone }[] = [
     { k: 'urgent', label: 'Urgent', sub: 'Gas, fire, sparking, flooding', tone: 'dangerSolid' }, { k: 'high', label: 'High', sub: 'No water, no power, leaks', tone: 'danger' },
     { k: 'medium', label: 'Medium', sub: 'Appliances, fittings', tone: 'warning' }, { k: 'low', label: 'Low', sub: 'Cosmetic, non-urgent', tone: 'neutral' },
   ];
@@ -807,7 +792,7 @@ export function HelpScreen() {
       <PageHeader title="Help & Support" subtitle="Answers to common questions, or get in touch with the team." />
       <Grid cols={{ mobile: 1, tablet: 3 }} gap={12}>
         {[
-          { icon: Phone, t: isTenant ? 'Emergency line, 24 hours' : 'Support line', s: '+234 1 700 2299', tone: 'danger' as Tone },
+          { icon: Phone, t: isTenant ? 'Management office' : 'Support line', s: state.settings.phone, tone: 'danger' as Tone },
           { icon: Mail, t: 'Email', s: state.settings.email, tone: 'info' as Tone },
           { icon: BookOpen, t: 'Help centre', s: 'Guides and videos', tone: 'primary' as Tone },
         ].map((x) => (

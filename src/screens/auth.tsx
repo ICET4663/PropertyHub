@@ -32,6 +32,7 @@ const isEmail = (v: string) => /^\S+@\S+\.\S+$/.test(v.trim());
 
 function AuthLayout({ children, variant = 'staff', top }: { children: React.ReactNode; variant?: 'staff' | 'tenant'; top?: React.ReactNode }) {
   const { state } = useStore();
+  const { navigate } = useRouter();
   const { bp, height } = useBreakpoint();
   const insets = useSafeAreaInsets();
   const managed = state.units.length;
@@ -41,15 +42,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   const body = variant === 'tenant'
     ? 'Check your lease, report an issue and follow every repair from submission to sign-off.'
     : 'PropertyHub gives landlords and managers one trusted view of occupancy, leases and maintenance across every location.';
-  const Chips = ({ small }: { small?: boolean }) => (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: small ? 12 : 22 }}>
-      {chips.map((c) => (
-        <View key={c} style={{ borderWidth: 1, borderColor: colors.sidebarBorder, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 5 }}>
-          <T size={12} weight="semibold" color={colors.sidebarText}><T size={12} weight="bold" color={colors.accent}>{c.split(' ')[0]}</T> {c.split(' ').slice(1).join(' ')}</T>
-        </View>
-      ))}
-    </View>
-  );
+
   const form = (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.card }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: bp === 'mobile' ? 20 : 40, paddingTop: 18, paddingBottom: 18 + insets.bottom }} keyboardShouldPersistTaps="handled">
@@ -60,7 +53,9 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <T size={11.5} color={colors.faint}>{`© ${new Date().getFullYear()} PropertyHub`}</T>
           <View style={{ flexDirection: 'row', gap: 16 }}>
-            {['Privacy', 'Terms', 'Help centre'].map((l) => <T key={l} size={11.5} color={colors.subtext}>{l}</T>)}
+            <Link size={11.5} color={colors.subtext} onPress={() => navigate('privacy')}>Privacy</Link>
+            <Link size={11.5} color={colors.subtext} onPress={() => navigate('terms')}>Terms</Link>
+            {Platform.OS === 'web' ? <Link size={11.5} color={colors.subtext} onPress={() => navigate('welcome', { section: 'faq' })}>Help</Link> : null}
           </View>
         </View>
       </ScrollView>
@@ -72,7 +67,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
         <View style={{ backgroundColor: colors.sidebar, paddingTop: insets.top + 18, paddingHorizontal: 20, paddingBottom: 18 }}>
           <Brand />
           <T size={19} weight="bold" color={colors.white} style={{ marginTop: 16, letterSpacing: -0.3 }}>{headline}</T>
-          <Chips small />
+          <Chips small chips={chips} />
         </View>
         {form}
       </View>
@@ -85,7 +80,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
           <Brand size="lg" />
           <T size={bp === 'desktop' ? 34 : 27} weight="bold" color={colors.white} style={{ marginTop: height > 700 ? 56 : 32, letterSpacing: -0.8, lineHeight: bp === 'desktop' ? 42 : 34 }}>{headline}</T>
           <T size={14.5} color={colors.sidebarText} style={{ marginTop: 16, maxWidth: 440, lineHeight: 22 }}>{body}</T>
-          <Chips />
+          <Chips chips={chips} />
         </View>
         <View style={{ flex: 1 }} />
         <CityScape height={Math.min(340, height * 0.42)} />
@@ -195,7 +190,7 @@ export function SignInScreen() {
   };
 
   return (
-    <AuthLayout top={<><View /><T size={12.5} color={colors.subtext}>New tenant? <Link size={12.5} onPress={() => navigate('signUp')}>Create an account</Link></T></>}>
+    <AuthLayout top={<>{Platform.OS === 'web' ? <BackLink label="PropertyHub home" to="welcome" /> : <View />}<T size={12.5} color={colors.subtext}>New tenant? <Link size={12.5} onPress={() => navigate('signUp')}>Create an account</Link></T></>}>
       <Heading title="Welcome back" body="Sign in to manage your properties or your tenancy. We'll take you to the right workspace for your role." />
       <View style={{ gap: 16 }}>
         <Input label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" onSubmitEditing={submit} />
@@ -225,9 +220,10 @@ export function SignInScreen() {
 
 export function SignUpScreen() {
   const { signUp } = useStore();
-  const { navigate } = useRouter();
+  const { navigate, route } = useRouter();
   const { setFlow } = useFlow();
-  const [f, setF] = useState({ name: '', email: '', phone: '', invite: '', password: '' });
+  // A welcome message can link straight here with the code filled in: /signUp?invite=PALM-A4-7Q2
+  const [f, setF] = useState({ name: '', email: '', phone: '', invite: (route.params.invite ?? '').toUpperCase(), password: '' });
   const [agree, setAgree] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -270,7 +266,7 @@ export function SignUpScreen() {
           </View>
           <T size={11.5} color={colors.subtext} style={{ marginTop: 4 }}>At least 8 characters with a number and a symbol</T>
         </View>
-        <Checkbox checked={agree} onChange={setAgree} label={<T size={12.5} color={colors.textSoft}>I agree to the PropertyHub <T size={12.5} weight="semibold" color={colors.primary}>Terms</T> and <T size={12.5} weight="semibold" color={colors.primary}>Privacy Policy</T></T>} />
+        <Checkbox checked={agree} onChange={setAgree} label={<T size={12.5} color={colors.textSoft}>I agree to the PropertyHub <Link size={12.5} onPress={() => navigate('terms')}>Terms</Link> and <Link size={12.5} onPress={() => navigate('privacy')}>Privacy notice</Link></T>} />
         {errors.agree ? <T size={11.5} color={colors.danger}>{errors.agree}</T> : null}
         <Button title="Create account" onPress={submit} loading={loading} size="lg" />
         <T size={12} color={colors.subtext} center>Your account is reviewed by your property manager before full access is granted.</T>
@@ -499,3 +495,13 @@ function MissingFlow() {
 }
 
 export { KeyRound, CircleCheck };
+
+const Chips = ({ small, chips }: { small?: boolean; chips: string[] }) => (
+  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: small ? 12 : 22 }}>
+    {chips.map((c) => (
+      <View key={c} style={{ borderWidth: 1, borderColor: colors.sidebarBorder, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: radius.sm, paddingHorizontal: 10, paddingVertical: 5 }}>
+        <T size={12} weight="semibold" color={colors.sidebarText}><T size={12} weight="bold" color={colors.accent}>{c.split(' ')[0]}</T> {c.split(' ').slice(1).join(' ')}</T>
+      </View>
+    ))}
+  </View>
+);

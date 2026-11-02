@@ -57,16 +57,12 @@ export function DataTable<R>({ columns, rows, keyOf, onRowPress, selectable, sel
 }
 
 export function Pagination({ page, pages, onPage, label }: { page: number; pages: number; onPage: (p: number) => void; label?: string }) {
-  const nums: Array<number | '…'> = [];
+  const nums: (number | '…')[] = [];
   for (let i = 1; i <= pages; i++) {
     if (i === 1 || i === pages || Math.abs(i - page) <= 1) nums.push(i);
     else if (nums[nums.length - 1] !== '…') nums.push('…');
   }
-  const Btn = ({ children, onPress, active, disabled }: { children: React.ReactNode; onPress?: () => void; active?: boolean; disabled?: boolean }) => (
-    <Touch disabled={disabled} onPress={onPress} style={{ minWidth: 30, height: 30, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : 'transparent', opacity: disabled ? 0.35 : 1, paddingHorizontal: 6 }} hoverStyle={{ backgroundColor: active ? colors.primary : colors.neutralSoft }}>
-      {children}
-    </Touch>
-  );
+
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, flexWrap: 'wrap', gap: 10 }}>
       <T size={12} color={colors.subtext}>{label}</T>
@@ -85,7 +81,8 @@ export function Pagination({ page, pages, onPage, label }: { page: number; pages
 
 export function usePaged<R>(rows: R[], perPage: number, resetKey: string) {
   const [page, setPage] = React.useState(1);
-  React.useEffect(() => setPage(1), [resetKey]);
+  const [previousKey, setPreviousKey] = React.useState(resetKey);
+  if (previousKey !== resetKey) { setPreviousKey(resetKey); setPage(1); }
   const pages = Math.max(1, Math.ceil(rows.length / perPage));
   const p = Math.min(page, pages);
   return { page: p, pages, setPage, slice: rows.slice((p - 1) * perPage, p * perPage), from: rows.length ? (p - 1) * perPage + 1 : 0, to: Math.min(rows.length, p * perPage) };
@@ -107,6 +104,8 @@ export const REQ_STATUS: Record<RequestStatus, { label: string; tone: Tone }> = 
   in_progress: { label: 'In progress', tone: 'warning' },
   resolved: { label: 'Resolved', tone: 'success' },
   closed: { label: 'Closed', tone: 'neutral' },
+  disputed: { label: 'Disputed', tone: 'danger' },
+  cancelled: { label: 'Cancelled', tone: 'neutral' },
 };
 export const RequestStatusBadge = ({ s }: { s: RequestStatus }) => <Badge label={REQ_STATUS[s].label} tone={REQ_STATUS[s].tone} dot />;
 
@@ -162,3 +161,9 @@ export function FileRow({ name, meta, kind, right, onPress }: { name: string; me
     </Touch>
   );
 }
+
+const Btn = ({ children, onPress, active, disabled }: { children: React.ReactNode; onPress?: () => void; active?: boolean; disabled?: boolean }) => (
+  <Touch disabled={disabled} onPress={onPress} style={{ minWidth: 30, height: 30, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? colors.primary : 'transparent', opacity: disabled ? 0.35 : 1, paddingHorizontal: 6 }} hoverStyle={{ backgroundColor: active ? colors.primary : colors.neutralSoft }}>
+    {children}
+  </Touch>
+);

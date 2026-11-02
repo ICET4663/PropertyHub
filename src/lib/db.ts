@@ -7,7 +7,7 @@
  * user can read and write; a rejected write throws, and the store reloads from the server.
  */
 import { Platform } from 'react-native';
-import type { AppState, MaintenanceRequest, RequestEvent, Role, Settings, User } from '../types';
+import type { AppState, MaintenanceRequest, PaystackTransaction, RequestEvent, Role, Settings, User } from '../types';
 import { supabase } from './supabase';
 
 // camelCase fields <-> snake_case columns, plus the few renames the schema needed (reserved words).
@@ -63,6 +63,16 @@ async function all(table: string, orderBy = 'id', ascending = true): Promise<Row
   }
 }
 
+/** Like all(), but an empty list while the server is missing the table (migration not applied yet). */
+async function allIfThere(table: string, orderBy = 'id', ascending = true): Promise<Row[]> {
+  try {
+    return await all(table, orderBy, ascending);
+  } catch (e) {
+    if (e instanceof Error && /could not find the table|does not exist/i.test(e.message)) return [];
+    throw e;
+  }
+}
+
 /** The newest `limit` rows of a feed. */
 async function latest(table: string, limit: number): Promise<Row[]> {
   return check(await supabase.from(table).select('*').order('at', { ascending: false }).limit(limit)) as Row[];
@@ -76,7 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
 export function emptyState(): AppState {
   return {
     version: 1, sessionUserId: null, users: [], locations: [], properties: [], blocks: [], units: [], tenants: [], leases: [],
-    requests: [], vendors: [], announcements: [], documents: [], notifications: [], payments: [], logs: [],
+    requests: [], vendors: [], announcements: [], documents: [], notifications: [], payments: [], transactions: [], logs: [],
     settings: DEFAULT_SETTINGS, drafts: [], locationFilter: null,
   };
 }
@@ -85,12 +95,12 @@ export function emptyState(): AppState {
 export async function loadAll(): Promise<Omit<AppState, 'sessionUserId' | 'locationFilter'>> {
   const [
     profiles, links, locations, properties, blocks, units, tenants, leases, payments, drafts, vendors,
-    requests, events, announcements, documents, notifications, logs, settings,
+    requests, announcements, documents, notifications, logs, settings, transactions,
   ] = await Promise.all([
     all('profiles'), all('profile_properties', 'profile_id'), all('locations'), all('properties'), all('blocks'), all('units'), all('tenants'),
-    all('leases'), all('payments'), all('onboarding_drafts'), all('vendors'), all('maintenance_requests'),
-    all('request_events', 'at'), all('announcements'), all('documents'),
-    latest('notifications', 500), latest('activity_logs', 600), all('org_settings'),
+    all('leases'), all('payments'), all('onboarding_drafts'), all('vendors'), loadRequests(),
+    all('announcements'), all('documents'),
+    latest('notifications', 500), latest('activity_logs', 600), all('org_settings'), allIfThere('paystack_transactions', 'created_at', false),
   ]);
 
   const propertyIds = new Map<string, string[]>();
@@ -100,9 +110,6 @@ export async function loadAll(): Promise<Omit<AppState, 'sessionUserId' | 'locat
     const ids = propertyIds.get(u.id);
     return ids ? { ...u, propertyIds: ids } : u;
   });
-
-  const byRequest = new Map<string, RequestEvent[]>();
-  for (const e of events) byRequest.set(e.request_id as string, [...(byRequest.get(e.request_id as string) ?? []), fromRow<RequestEvent>(e, ['request_id'])]);
 
   return {
     version: 1,
@@ -114,9 +121,10 @@ export async function loadAll(): Promise<Omit<AppState, 'sessionUserId' | 'locat
     tenants: tenants.map((r) => fromRow(r)),
     leases: leases.map((r) => fromRow(r)),
     payments: payments.map((r) => fromRow(r)),
+    transactions: transactions.map((r) => fromRow<PaystackTransaction>(r, ['profile_id', 'return_url', 'paystack_id'])),
     drafts: drafts.map((r) => fromRow(r)),
     vendors: vendors.map((r) => fromRow(r)),
-    requests: requests.map((r) => ({ ...fromRow<MaintenanceRequest>(r), events: byRequest.get(r.id as string) ?? [] })),
+    requests,
     announcements: announcements.map((r) => fromRow(r)),
     documents: documents.map((r) => fromRow(r)),
     notifications: notifications.map((r) => fromRow(r)),
@@ -126,7 +134,7 @@ export async function loadAll(): Promise<Omit<AppState, 'sessionUserId' | 'locat
 }
 
 // Parents before children, so inserts never point at a row that isn't there yet. Deletes run in reverse.
-const SYNCED: Array<{ key: keyof AppState; table: string; omit?: string[]; insertOnly?: boolean }> = [
+const SYNCED: { key: keyof AppState; table: string; omit?: string[]; insertOnly?: boolean }[] = [
   { key: 'locations', table: 'locations' },
   { key: 'properties', table: 'properties' },
   { key: 'blocks', table: 'blocks' },
@@ -147,7 +155,7 @@ type WithId = { id: string };
 
 /** Writes the difference between two states to Supabase. Throws on the first rejected write. */
 export async function pushChanges(prev: AppState, next: AppState, me: { id: string; role: Role }) {
-  const deletes: Array<{ table: string; ids: string[] }> = [];
+  const deletes: { table: string; ids: string[] }[] = [];
 
   for (const { key, table, omit, insertOnly } of SYNCED) {
     const a = prev[key] as unknown as WithId[];
@@ -157,7 +165,7 @@ export async function pushChanges(prev: AppState, next: AppState, me: { id: stri
       if (key === 'logs' && me.role === 'tenant') continue;
       const before = new Map(a.map((x) => [x.id, x]));
       const inserts: Row[] = [];
-      const updates: Array<{ id: string; patch: Row }> = [];
+      const updates: { id: string; patch: Row }[] = [];
       for (const item of b) {
         const old = before.get(item.id);
         if (!old) inserts.push(key === 'logs' ? { ...toRow(item), actor_id: me.id } : toRow(item, omit));
@@ -185,15 +193,19 @@ export async function pushChanges(prev: AppState, next: AppState, me: { id: stri
   for (const d of deletes.reverse()) check(await supabase.from(d.table).delete().in('id', d.ids));
 }
 
-/** Request history lives in its own table; events are only ever appended. */
+/**
+ * Request history lives in its own table; events are only ever appended.
+ * New requests and workflow entries (created / status / vendor) are written by the server functions,
+ * so only comments and priority notes on existing requests are pushed from here.
+ */
 async function pushRequestEvents(prev: MaintenanceRequest[], next: MaintenanceRequest[]) {
   const before = new Map(prev.map((r) => [r.id, r]));
   const rows: Row[] = [];
   for (const r of next) {
     const old = before.get(r.id);
-    if (old === r) continue;
-    const seen = new Set(old?.events.map((e) => e.id));
-    for (const e of r.events) if (!seen.has(e.id)) rows.push({ ...toRow(e), request_id: r.id });
+    if (!old || old === r) continue;
+    const seen = new Set(old.events.map((e) => e.id));
+    for (const e of r.events) if (!seen.has(e.id)) rows.push({ ...toRow(e, ['actorId']), request_id: r.id });
   }
   if (rows.length) check(await supabase.from('request_events').insert(rows));
 }
@@ -212,6 +224,49 @@ async function pushUsers(prev: User[], next: User[]) {
       if (u.propertyIds?.length) check(await supabase.from('profile_properties').insert(u.propertyIds.map((property_id) => ({ profile_id: u.id, property_id }))));
     }
   }
+}
+
+/** Every visible request with its history. Also the catch-up after the live feed was interrupted. */
+export async function loadRequests(): Promise<MaintenanceRequest[]> {
+  const [requests, events] = await Promise.all([all('maintenance_requests'), all('request_events', 'at')]);
+  const byRequest = new Map<string, RequestEvent[]>();
+  for (const e of events) byRequest.set(e.request_id as string, [...(byRequest.get(e.request_id as string) ?? []), fromRow<RequestEvent>(e, ['request_id'])]);
+  return requests.map((r) => ({ ...fromRow<MaintenanceRequest>(r), events: byRequest.get(r.id as string) ?? [] }));
+}
+
+/** One request with its history, after a server function changed it. Null if it is gone or hidden. */
+export async function loadRequest(id: string): Promise<MaintenanceRequest | null> {
+  const [rows, events] = await Promise.all([
+    supabase.from('maintenance_requests').select('*').eq('id', id),
+    supabase.from('request_events').select('*').eq('request_id', id).order('at', { ascending: true }),
+  ]);
+  const row = (check(rows) as Row[])[0];
+  if (!row) return null;
+  return { ...fromRow<MaintenanceRequest>(row), events: (check(events) as Row[]).map((e) => fromRow<RequestEvent>(e, ['request_id'])) };
+}
+
+/** Charges and Paystack attempts, after a payment changed on the server. */
+export async function loadPayments(): Promise<Pick<AppState, 'payments' | 'transactions'>> {
+  const [payments, transactions] = await Promise.all([all('payments'), allIfThere('paystack_transactions', 'created_at', false)]);
+  return {
+    payments: payments.map((r) => fromRow(r)),
+    transactions: transactions.map((r) => fromRow<PaystackTransaction>(r, ['profile_id', 'return_url', 'paystack_id'])),
+  };
+}
+
+/** The notification feed, for after a server function posted to it. */
+export async function loadNotifications(): Promise<AppState['notifications']> {
+  return (await latest('notifications', 500)).map((r) => fromRow(r));
+}
+
+/** Calls a server function and turns its error into a readable message. */
+export async function rpc<T = unknown>(fn: string, args: Record<string, unknown>): Promise<T> {
+  const { data, error } = await supabase.rpc(fn, args);
+  if (error) {
+    if (error.message.includes('Could not find the function')) throw new Error('The server isn’t updated for this action yet. Apply the latest database migrations.');
+    throw new Error(error.message);
+  }
+  return data as T;
 }
 
 /** Next MR- / LS- / TN- code from the server sequences. */

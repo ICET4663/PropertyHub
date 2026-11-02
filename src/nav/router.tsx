@@ -1,95 +1,63 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+/**
+ * The app's navigation API, on top of Expo Router.
+ *
+ * Screens navigate by route name, the same names stored in notification links: `navigate('request', { id })`.
+ * Each name is a file in src/app/(app) or src/app/(auth), and params travel as the query string, so the
+ * same screen opens from /request?id=MR-2083 on the web and propertyhub://request?id=MR-2083 on a phone.
+ */
+import { useMemo } from 'react';
+import { useLocalSearchParams, usePathname, useRootNavigationState, useRouter as useExpoRouter, type Href } from 'expo-router';
 
 export type Params = Record<string, string>;
 export interface Route { name: string; params: Params }
 
 interface RouterValue {
+  /** `name` is the screen on top; `params` are this screen's own. */
   route: Route;
   navigate: (name: string, params?: Params) => void;
   replace: (name: string, params?: Params) => void;
   back: (fallback?: string) => void;
+  /** For top-level destinations (tabs, sidebar): returns to that screen if it is already open instead of stacking another copy. */
+  go: (name: string) => void;
   canGoBack: boolean;
 }
 
-const RouterCtx = createContext<RouterValue | null>(null);
-const isWeb = Platform.OS === 'web' && typeof window !== 'undefined';
+export const hrefFor = (name: string, params: Params = {}): Href => ({ pathname: `/${name}`, params }) as Href;
 
-function parseHash(): Route | null {
-  if (!isWeb) return null;
-  const h = window.location.hash.replace(/^#\/?/, '');
-  if (!h) return null;
-  const [name, qs] = h.split('?');
-  const params: Params = {};
-  if (qs) new URLSearchParams(qs).forEach((v, k) => { params[k] = v; });
-  return { name, params };
-}
+interface NavState { index?: number; routes: { name: string; state?: NavState }[] }
 
-function toHash(r: Route): string {
-  const qs = new URLSearchParams(r.params).toString();
-  return `#/${r.name}${qs ? `?${qs}` : ''}`;
-}
-
-export function RouterProvider({ initial, children }: { initial: string; children: React.ReactNode }) {
-  const [stack, setStack] = useState<Route[]>(() => [parseHash() ?? { name: initial, params: {} }]);
-  const route = stack[stack.length - 1];
-  const skipPush = useRef(false);
-
-  // keep the URL in sync on web
-  useEffect(() => {
-    if (!isWeb) return;
-    const target = toHash(route);
-    if (window.location.hash !== target) {
-      if (skipPush.current) window.history.replaceState(null, '', target);
-      else window.history.pushState(null, '', target);
-    }
-    skipPush.current = false;
-  }, [route]);
-
-  useEffect(() => {
-    if (!isWeb) return;
-    const onPop = () => {
-      const r = parseHash();
-      if (!r) return;
-      skipPush.current = true;
-      setStack((s) => {
-        const idx = s.map(toHash).lastIndexOf(toHash(r));
-        return idx >= 0 ? s.slice(0, idx + 1) : [...s, r];
-      });
-    };
-    window.addEventListener('popstate', onPop);
-    return () => window.removeEventListener('popstate', onPop);
-  }, []);
-
-  const navigate = useCallback((name: string, params: Params = {}) => {
-    setStack((s) => {
-      const top = s[s.length - 1];
-      if (top.name === name && JSON.stringify(top.params) === JSON.stringify(params)) return s;
-      return [...s.slice(-40), { name, params }];
-    });
-  }, []);
-
-  const replace = useCallback((name: string, params: Params = {}) => {
-    skipPush.current = true;
-    setStack((s) => [...s.slice(0, -1), { name, params }]);
-  }, []);
-
-  const back = useCallback((fallback?: string) => {
-    setStack((s) => {
-      if (s.length > 1) {
-        skipPush.current = true;
-        return s.slice(0, -1);
-      }
-      return fallback ? [{ name: fallback, params: {} }] : s;
-    });
-  }, []);
-
-  const value = useMemo(() => ({ route, navigate, replace, back, canGoBack: stack.length > 1 }), [route, navigate, replace, back, stack.length]);
-  return <RouterCtx.Provider value={value}>{children}</RouterCtx.Provider>;
+/** Route names in the innermost stack on screen, bottom first: the screens Back would walk through. */
+function openScreens(state: NavState | undefined): string[] {
+  let names: string[] = [];
+  for (let s = state; s?.routes?.length; s = s.routes[s.index ?? s.routes.length - 1].state) names = s.routes.map((r) => r.name);
+  return names;
 }
 
 export function useRouter(): RouterValue {
-  const c = useContext(RouterCtx);
-  if (!c) throw new Error('useRouter must be used within RouterProvider');
-  return c;
+  const router = useExpoRouter();
+  const pathname = usePathname();
+  const local = useLocalSearchParams();
+  const open = openScreens(useRootNavigationState() as NavState | undefined).join(',');
+  const name = pathname.split('/').filter(Boolean)[0] ?? 'index';
+  const key = JSON.stringify(local);
+  return useMemo(() => {
+    const params: Params = {};
+    for (const [k, v] of Object.entries(JSON.parse(key) as Record<string, string | string[]>)) params[k] = Array.isArray(v) ? v[0] : v;
+    const isCurrent = (n: string, p: Params) => n === name && JSON.stringify(p) === JSON.stringify(params);
+    return {
+      route: { name, params },
+      navigate: (n, p = {}) => { if (!isCurrent(n, p)) router.push(hrefFor(n, p)); },
+      replace: (n, p = {}) => router.replace(hrefFor(n, p)),
+      back: (fallback) => {
+        if (router.canGoBack()) router.back();
+        else if (fallback) router.replace(hrefFor(fallback));
+      },
+      go: (n) => {
+        if (n === name) return;
+        if (open.split(',').includes(n)) router.dismissTo(hrefFor(n));
+        else router.push(hrefFor(n));
+      },
+      canGoBack: router.canGoBack(),
+    };
+  }, [router, name, key, open]);
 }

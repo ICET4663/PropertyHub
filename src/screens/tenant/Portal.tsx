@@ -1,20 +1,26 @@
 import React, { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import {
-  Bug, Building2, Check, CheckCheck, Clock, Download, Droplet, Fan, FileText, Flame, Hammer, House, Image as ImageIcon, Info, Paperclip, Phone, Plus, Send,
-  Shield, Sparkles, Star, TriangleAlert, Wrench, Zap, Siren, CircleHelp, Hourglass, CircleCheck, Megaphone, Snowflake,
+  Bug, Building2, Check, CheckCheck, Clock, Download, Droplet, Fan, FileText, Flame, Hammer, House, Info, Paperclip, Phone, Plus, Send,
+  Shield, Sparkles, Star, TriangleAlert, Upload, Wrench, Zap, Siren, CircleHelp, Hourglass, CircleCheck, Megaphone, Snowflake,
 } from 'lucide-react-native';
 import type { LucideIcon } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
 import { useLookup, useStore } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
-import { Page, PageHeader } from '../../components/shell';
+import { LiveTag, Page, PageHeader } from '../../components/shell';
 import {
-  Avatar, Badge, Button, Card, CardHeader, Checkbox, EmptyState, Grid, IconTile, Input, KV, Link, Notice, ProgressBar, Row, Select, T, Tabs, Toggle, Touch, useToast, Divider,
+  Avatar, Badge, Button, CallButton, Card, CardHeader, Checkbox, EmptyState, Grid, IconTile, Input, KV, Link, Notice, ProgressBar, Row, Select, T, Tabs, Toggle, Touch, useToast, Divider,
 } from '../../components/ui';
+import { AccountSecurityCard } from '../../components/account';
 import { FileRow, PRIORITY, RequestStatusBadge } from '../../components/data';
+import { PhotoPicker, RequestPhotos, usePick, useOpenDocument } from '../../components/files';
+import { TRANSITION_LABEL, TransitionDialog } from '../../components/requests';
+import { ChargesToPay, PaymentLine, ReceiptDialog, isOutstanding } from '../../components/payments';
+import { DONE_STATUSES, allowedTransitions, isOpen, newClientKey, type Transition } from '../../lib/workflow';
+import { ACCEPT, ID_TYPES, pickDocuments, pickPhotos, uploadFile, type PickedFile } from '../../lib/files';
 import { NotificationList } from '../staff/Admin';
-import type { Category, MaintenanceRequest } from '../../types';
+import type { Category, MaintenanceRequest, Payment } from '../../types';
 import { daysBetween, daysUntil, fmtDate, fmtShort, fmtStamp, greeting, leaseStatus, naira, nairaCompact } from '../../utils';
 
 function useMine() {
@@ -45,18 +51,21 @@ function PendingNotice() {
 // ---------------------------------------------------------------- Home
 
 export function TenantHomeScreen() {
-  const { state, tenantConfirm } = useStore();
+  const { state } = useStore();
+  const [action, setAction] = useState<{ id: string; t: Transition } | null>(null);
   const lookup = useLookup();
   const { navigate } = useRouter();
-  const toast = useToast();
   const { bp } = useBreakpoint();
   const { t, unit, prop, lease, requests, manager, caretaker, block, location } = useMine();
   if (!t) return null;
   const days = lease ? daysUntil(lease.end) : 0;
   const total = lease ? daysBetween(lease.start, lease.end) : 1;
   const awaiting = requests.find((r) => r.status === 'resolved');
-  const open = requests.filter((r) => ['new', 'assigned', 'in_progress'].includes(r.status));
+  const open = requests.filter((r) => isOpen(r));
   const paid = lease ? state.payments.find((p) => p.leaseId === lease.id && p.status === 'paid' && p.label.startsWith('Rent')) : undefined;
+  const owed = state.payments.filter((p) => p.tenantId === t.id && isOutstanding(p));
+  const owedTotal = owed.reduce((sum, p) => sum + p.amount, 0);
+  const late = owed.some((p) => p.status === 'overdue' || daysUntil(p.date) < 0);
   const announcements = state.notifications.filter((n) => n.audience === t.id && n.category === 'Announcement').slice(0, 2);
   const recent = requests.slice(0, 3);
 
@@ -81,11 +90,17 @@ export function TenantHomeScreen() {
       {awaiting ? (
         <Notice tone="success" icon={CheckCheck} style={{ marginBottom: 16 }} action={
           <Row gap={8}>
-            <Button title="Still a problem" size="sm" variant="secondary" onPress={() => { tenantConfirm(awaiting.id, false); toast('Thanks — we’ve reopened the request'); }} />
-            <Button title="Yes, it's fixed" size="sm" onPress={() => { tenantConfirm(awaiting.id, true, 5); toast('Thanks for confirming!'); }} />
+            <Button title="Still a problem" size="sm" variant="secondary" onPress={() => setAction({ id: awaiting.id, t: 'dispute' })} />
+            <Button title="Yes, it's fixed" size="sm" onPress={() => setAction({ id: awaiting.id, t: 'confirm' })} />
           </Row>
         }>
-          <T size={13} color={colors.text}><T size={13} weight="semibold">{lookup.vendor(awaiting.vendorId)?.name ?? 'Your repairer'} marked your {awaiting.title.toLowerCase()} request as fixed.</T> Is it working now?</T>
+          <T size={13} color={colors.text}><T size={13} weight="semibold">Your {awaiting.title.toLowerCase()} request was marked as fixed.</T> Is it working now?</T>
+        </Notice>
+      ) : null}
+
+      {owed.length ? (
+        <Notice tone={late ? 'danger' : 'warning'} style={{ marginBottom: 16 }} action={<Button title="Pay now" size="sm" onPress={() => navigate('myLease')} />}>
+          <T size={13} color={colors.text}><T size={13} weight="semibold">{naira(owedTotal)} {late ? 'is overdue' : 'is due'}.</T> {owed.length === 1 ? owed[0].label : `${owed.length} charges`}. You can pay online with a card or bank transfer.</T>
         </Notice>
       ) : null}
 
@@ -98,11 +113,11 @@ export function TenantHomeScreen() {
             <T size={11.5} color={colors.subtext} style={{ marginTop: 6 }}>{fmtDate(lease.start)} – {fmtDate(lease.end)} · Renewal opens {fmtShort(new Date(new Date(lease.end).getTime() - 90 * 86400000).toISOString())}</T>
           </> : <T size={13} color={colors.subtext} style={{ marginTop: 10 }}>No lease yet.</T>}
         </Card>
-        <Card>
+        <Card onPress={() => navigate('myLease')}>
           <Row gap={8}><IconTile icon={House} tone="accent" size={28} iconSize={14} /><T size={12.5} color={colors.textSoft}>Rent</T></Row>
           {lease ? <>
             <T size={24} weight="bold" style={{ marginTop: 10 }}>{nairaCompact(lease.rent)} <T size={13} color={colors.subtext}>/ year</T></T>
-            <Badge label={paid ? `Paid to ${fmtDate(lease.end)}` : 'Payment pending'} tone={paid ? 'success' : 'warning'} dot style={{ marginTop: 10 }} />
+            <Badge label={owed.length ? `${naira(owedTotal)} to pay` : paid ? `Paid to ${fmtDate(lease.end)}` : 'Nothing due'} tone={owed.length ? (late ? 'danger' : 'warning') : 'success'} dot style={{ marginTop: 10 }} />
           </> : <T size={13} color={colors.subtext} style={{ marginTop: 10 }}>—</T>}
         </Card>
         <Card onPress={() => navigate('myRequests')}>
@@ -143,11 +158,12 @@ export function TenantHomeScreen() {
       <Card>
         <CardHeader title="Need help?" />
         <Grid cols={{ mobile: 1, tablet: 3 }} gap={14}>
-          {manager ? <Row gap={10}><Avatar name={manager.name} size={34} /><View><T size={13} weight="semibold">{manager.name}</T><T size={11.5} color={colors.subtext}>Your property manager</T><T size={11.5} color={colors.subtext}>{manager.phone}</T></View></Row> : null}
-          <Row gap={10}><Avatar name={caretaker?.name ?? 'John Eze'} size={34} tone={[colors.primarySoft, colors.primary]} /><View><T size={13} weight="semibold">{caretaker?.name ?? 'John Eze'}</T><T size={11.5} color={colors.subtext}>Caretaker, on site 7am–7pm</T><T size={11.5} color={colors.subtext}>{caretaker?.phone ?? '+234 806 441 2031'}</T></View></Row>
-          <Row gap={10}><IconTile icon={Siren} tone="danger" size={34} /><View><T size={13} weight="semibold">Emergency line, 24 hours</T><T size={11.5} color={colors.subtext}>Fire, gas, flooding, security</T><T size={11.5} weight="semibold" color={colors.danger}>+234 1 700 2299</T></View></Row>
+          {manager ? <Row gap={10}><Avatar name={manager.name} size={34} /><View style={{ flex: 1 }}><T size={13} weight="semibold">{manager.name}</T><T size={11.5} color={colors.subtext}>Your property manager</T><T size={11.5} color={colors.subtext}>{manager.phone}</T></View><CallButton phone={manager.phone} name={manager.name} compact /></Row> : null}
+          {caretaker ? <Row gap={10}><Avatar name={caretaker.name} size={34} tone={[colors.primarySoft, colors.primary]} /><View style={{ flex: 1 }}><T size={13} weight="semibold">{caretaker.name}</T><T size={11.5} color={colors.subtext}>Caretaker</T><T size={11.5} color={colors.subtext}>{caretaker.phone}</T></View><CallButton phone={caretaker.phone} name={caretaker.name} compact /></Row> : null}
+          {state.settings.phone ? <Row gap={10}><IconTile icon={Siren} tone="danger" size={34} /><View style={{ flex: 1 }}><T size={13} weight="semibold">Management office</T><T size={11.5} color={colors.subtext}>Fire, gas, flooding or security: call now</T><T size={11.5} weight="semibold" color={colors.danger}>{state.settings.phone}</T></View><CallButton phone={state.settings.phone} name="the management office" compact /></Row> : null}
         </Grid>
       </Card>
+      {action && requests.find((r) => r.id === action.id) ? <TransitionDialog request={requests.find((r) => r.id === action.id)!} transition={action.t} onClose={() => setAction(null)} actorIsTenant /> : null}
     </Page>
   );
 }
@@ -156,8 +172,9 @@ export function TenantHomeScreen() {
 
 export function MyLeaseScreen() {
   const { state, setTenantIntent } = useStore();
-  const { navigate } = useRouter();
   const toast = useToast();
+  const openDoc = useOpenDocument();
+  const [receipt, setReceipt] = useState<Payment | null>(null);
   const { t, unit, prop, lease, manager } = useMine();
   if (!t) return null;
   if (!lease || lease.draft) return <Page><PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'My Lease' }]} title="My lease" /><PendingNotice /><Card><EmptyState icon={FileText} title="No lease yet" body="Your lease appears here once your property manager approves your tenancy." /></Card></Page>;
@@ -169,7 +186,11 @@ export function MyLeaseScreen() {
   return (
     <Page>
       <PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'My Lease' }]} title="My lease" badge={<Badge label={leaseStatus(lease) === 'expiring' ? 'Expiring soon' : leaseStatus(lease) === 'expired' ? 'Expired' : 'Active'} tone={leaseStatus(lease) === 'active' ? 'success' : leaseStatus(lease) === 'expired' ? 'danger' : 'warning'} dot />}
-        actions={<Button title="Download signed lease" icon={Download} variant="secondary" onPress={() => toast(`Downloading ${lease.agreement}`)} />} />
+        actions={(() => {
+          const signed = state.documents.find((d) => d.storagePath && d.storagePath === lease.agreement);
+          return signed ? <Button title="Download signed lease" icon={Download} variant="secondary" onPress={() => openDoc(signed, true)} /> : undefined;
+        })()} />
+      <ChargesToPay style={{ marginBottom: 16 }} />
       <Grid cols={{ mobile: 1, desktop: 3 }} spans={[{ mobile: 1, desktop: 2 }, 1]}>
         <View style={{ gap: 16 }}>
           <Card>
@@ -193,7 +214,8 @@ export function MyLeaseScreen() {
           <Card>
             <CardHeader title="Documents" />
             <View style={{ gap: 8 }}>
-              {docs.slice(0, 5).map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${(d.sizeKb / 1024).toFixed(1)} MB`} right={<Button title="Download" size="sm" variant="secondary" onPress={() => toast(`Downloading ${d.name}`)} />} />)}
+              {docs.slice(0, 5).map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${(d.sizeKb / 1024).toFixed(1)} MB`} onPress={() => openDoc(d)} right={<Button title="Download" size="sm" variant="secondary" onPress={() => openDoc(d, true)} />} />)}
+              {!docs.length ? <T size={12.5} color={colors.subtext}>Your signed lease appears here once your manager uploads it.</T> : null}
             </View>
           </Card>
         </View>
@@ -213,16 +235,13 @@ export function MyLeaseScreen() {
           <Card>
             <CardHeader title="Payment history" />
             <View style={{ gap: 12 }}>
-              {payments.map((p) => (
-                <Row key={p.id} justify="space-between" align="flex-start">
-                  <View><T size={13} weight="semibold">{p.label}</T><T size={11.5} color={colors.subtext}>{fmtDate(p.date)} · {p.method}</T></View>
-                  <T size={13} weight="bold" color={p.status === 'overdue' ? colors.danger : colors.text}>{naira(p.amount)}</T>
-                </Row>
-              ))}
+              {payments.filter((p) => p.status === 'paid').map((p) => <PaymentLine key={p.id} p={p} onReceipt={setReceipt} />)}
+              {!payments.some((p) => p.status === 'paid') ? <T size={12.5} color={colors.subtext}>No payments yet.</T> : null}
             </View>
           </Card>
         </View>
       </Grid>
+      <ReceiptDialog payment={receipt} onClose={() => setReceipt(null)} />
     </Page>
   );
 }
@@ -232,29 +251,49 @@ export function MyLeaseScreen() {
 const CAT_ICON: Partial<Record<Category, LucideIcon>> = { Plumbing: Droplet, Electrical: Zap, 'Air conditioning': Snowflake, Generator: Fan, 'Water supply': Droplet, 'Building repairs': Hammer, Security: Shield, Cleaning: Sparkles, Pests: Bug, Other: Wrench };
 
 export function MyRequestsScreen() {
-  const { state, tenantConfirm, addComment } = useStore();
+  const { me, addComment } = useStore();
+  const [action, setAction] = useState<Transition | null>(null);
   const lookup = useLookup();
   const { navigate, route } = useRouter();
   const toast = useToast();
   const { bp } = useBreakpoint();
   const { t, requests } = useMine();
   const [tab, setTab] = useState<'open' | 'closed'>('open');
-  const openList = requests.filter((r) => r.status !== 'closed');
-  const closed = requests.filter((r) => r.status === 'closed');
+  const openList = requests.filter((r) => !DONE_STATUSES.includes(r.status));
+  const closed = requests.filter((r) => DONE_STATUSES.includes(r.status));
   const list = tab === 'open' ? openList : closed;
   const [selId, setSelId] = useState<string | undefined>(route.params.id ?? openList[0]?.id ?? requests[0]?.id);
-  const [rating, setRating] = useState(4);
   const [msg, setMsg] = useState('');
+  const [photoVersion, setPhotoVersion] = useState(0);
+  const [attaching, setAttaching] = useState(false);
+  const pick = usePick();
   const sel = requests.find((r) => r.id === selId);
+  const attachPhoto = async (requestId: string) => {
+    const [f] = await pick(() => pickPhotos('library'), 'maintenance-photos', ACCEPT.images);
+    if (!f) return;
+    setAttaching(true);
+    try {
+      await uploadFile('maintenance-photos', requestId, f);
+      addComment(requestId, 'Added a photo', true);
+      setPhotoVersion((v) => v + 1);
+      toast('Photo added to your request');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger');
+    } finally {
+      setAttaching(false);
+    }
+  };
   if (!t) return null;
   const steps = ['Received', 'Vendor assigned', 'Being fixed', 'You confirm', 'Closed'];
-  const stepIdx = (r: MaintenanceRequest) => (r.status === 'new' ? 0 : r.status === 'assigned' ? 1 : r.status === 'in_progress' ? 2 : r.status === 'resolved' ? 3 : 4);
+  const stepIdx = (r: MaintenanceRequest) => ({ new: 0, cancelled: 0, assigned: 1, in_progress: 2, resolved: 3, disputed: 3, closed: 4 })[r.status];
   const statusFor = (r: MaintenanceRequest) => (r.status === 'resolved' ? <Badge label="Fixed" tone="success" dot /> : <RequestStatusBadge s={r.status} />);
+  const can = sel ? allowedTransitions(sel, me, t.id) : [];
+  const assignee = sel ? [lookup.vendor(sel.vendorId)?.name, lookup.user(sel.caretakerId)?.name].filter(Boolean).join(' and ') : '';
   const shared = sel ? sel.events.filter((e) => !e.internal).slice().reverse() : [];
 
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'My Requests' }]} title="My requests" actions={t.status === 'active' ? <Button title="Report an issue" icon={Plus} onPress={() => navigate('reportIssue')} /> : undefined} />
+      <PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'My Requests' }]} title="My requests" badge={<LiveTag />} actions={t.status === 'active' ? <Button title="Report an issue" icon={Plus} onPress={() => navigate('reportIssue')} /> : undefined} />
       <PendingNotice />
       <View style={{ flexDirection: bp === 'mobile' ? 'column' : 'row', gap: 16, alignItems: 'flex-start' }}>
         <Card pad={0} style={{ width: bp === 'mobile' ? '100%' : 320 }}>
@@ -279,7 +318,7 @@ export function MyRequestsScreen() {
             <Row gap={6} style={{ marginVertical: 18 }} wrap={bp === 'mobile'}>
               {steps.map((s, i) => {
                 const idx = stepIdx(sel);
-                const done = i < idx || sel.status === 'closed', cur = i === idx && sel.status !== 'closed';
+                const done = i < idx || sel.status === 'closed', cur = i === idx && !DONE_STATUSES.includes(sel.status);
                 return (
                   <React.Fragment key={s}>
                     <Row gap={6}>
@@ -291,22 +330,22 @@ export function MyRequestsScreen() {
                 );
               })}
             </Row>
-            {sel.status === 'resolved' ? (
+            {can.includes('confirm') ? (
               <View style={{ backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 16, borderWidth: 1, borderColor: colors.border, marginBottom: 18 }}>
                 <T size={13.5} weight="semibold">Is the {sel.title.toLowerCase()} sorted?</T>
-                <T size={12.5} color={colors.subtext} style={{ marginTop: 3 }}>If you don't reply, we will close this request in 7 days.</T>
-                <Row gap={6} style={{ marginTop: 12 }}>
-                  <T size={12.5} weight="semibold" color={colors.textSoft}>Rate the repair:</T>
-                  {[1, 2, 3, 4, 5].map((n) => <Touch key={n} onPress={() => setRating(n)}><Star size={18} color={colors.accent} fill={n <= rating ? colors.accent : 'transparent'} /></Touch>)}
-                </Row>
-                <Row gap={8} style={{ marginTop: 12 }}>
-                  <Button title="Yes, it's fixed" onPress={() => { tenantConfirm(sel.id, true, rating); toast('Thanks for confirming!'); setTab('closed'); }} />
-                  <Button title="No, it's still a problem" variant="secondary" onPress={() => { tenantConfirm(sel.id, false); toast('We’ve reopened it and told your manager'); }} />
+                <T size={12.5} color={colors.subtext} style={{ marginTop: 3 }}>The request stays open until you tell us.</T>
+                <Row gap={8} style={{ marginTop: 12 }} wrap>
+                  <Button title={TRANSITION_LABEL.confirm} onPress={() => setAction('confirm')} />
+                  <Button title={TRANSITION_LABEL.dispute} variant="secondary" onPress={() => setAction('dispute')} />
                 </Row>
               </View>
             ) : null}
-            {sel.visit && (sel.status === 'assigned' || sel.status === 'in_progress') ? <Notice tone="info" icon={Clock} style={{ marginBottom: 16 }}>{`${lookup.vendor(sel.vendorId)?.name} is booked for ${fmtDate(sel.visit.date)}, ${sel.visit.window}.`}</Notice> : null}
-            <T size={12.5} weight="semibold" color={colors.textSoft} style={{ marginBottom: 10 }}>Updates</T>
+            {sel.status === 'disputed' ? <Notice tone="warning" style={{ marginBottom: 16 }} title="You said it’s still a problem">{`${sel.disputeReason ?? ''} Your manager has been told and will arrange another visit.`.trim()}</Notice> : null}
+            {sel.visit && assignee && (sel.status === 'assigned' || sel.status === 'in_progress') ? <Notice tone="info" icon={Clock} style={{ marginBottom: 16 }}>{`${assignee} ${assignee.includes(' and ') ? 'are' : 'is'} booked for ${fmtDate(sel.visit.date)}, ${sel.visit.window}.`}</Notice> : null}
+            {can.includes('cancel') ? <Row style={{ marginBottom: 12 }}><Button title="Cancel this request" size="sm" variant="ghost" onPress={() => setAction('cancel')} /></Row> : null}
+            <RequestPhotos requestId={sel.id} title="Your photos" version={photoVersion} />
+            <RequestPhotos requestId={sel.id} title="Photos of the finished work" completion version={sel.status === 'resolved' ? 1 : 0} />
+            <T size={12.5} weight="semibold" color={colors.textSoft} style={{ marginBottom: 10, marginTop: 16 }}>Updates</T>
             {shared.map((e, i) => (
               <Row key={e.id} gap={12} align="flex-start">
                 <View style={{ alignItems: 'center' }}>
@@ -319,12 +358,12 @@ export function MyRequestsScreen() {
                 </View>
               </Row>
             ))}
-            {sel.status !== 'closed' ? (
+            {!DONE_STATUSES.includes(sel.status) ? (
               <View style={{ marginTop: 6, gap: 10 }}>
                 <T size={12.5} weight="semibold" color={colors.textSoft}>Message your manager</T>
                 <Input value={msg} onChangeText={setMsg} multiline placeholder="Add a note or ask a question..." />
                 <Row justify="space-between">
-                  <Button title="Attach photo" icon={Paperclip} size="sm" variant="ghost" onPress={() => toast('Photo attached')} />
+                  <Button title={attaching ? 'Uploading…' : 'Attach photo'} icon={Paperclip} size="sm" variant="ghost" disabled={attaching} onPress={() => void attachPhoto(sel.id)} />
                   <Button title="Send" icon={Send} size="sm" disabled={!msg.trim()} onPress={() => { addComment(sel.id, msg.trim(), true); setMsg(''); toast('Message sent to your manager'); }} />
                 </Row>
               </View>
@@ -332,19 +371,20 @@ export function MyRequestsScreen() {
           </Card>
         ) : <Card style={{ flex: 1, width: '100%' }}><EmptyState icon={Wrench} title="Select a request" body="Pick a request to see its progress." /></Card>}
       </View>
+      {sel ? <TransitionDialog request={sel} transition={action} onClose={() => setAction(null)} actorIsTenant /> : null}
     </Page>
   );
 }
 
 // ---------------------------------------------------------------- Report an issue
 
-const ISSUE_CATS: Array<{ c: Category; icon: LucideIcon }> = [
+const ISSUE_CATS: { c: Category; icon: LucideIcon }[] = [
   { c: 'Plumbing', icon: Droplet }, { c: 'Electrical', icon: Zap }, { c: 'Air conditioning', icon: Snowflake }, { c: 'Generator', icon: Fan }, { c: 'Water supply', icon: Droplet },
   { c: 'Building repairs', icon: Hammer }, { c: 'Security', icon: Shield }, { c: 'Cleaning', icon: Sparkles }, { c: 'Pests', icon: Bug }, { c: 'Other', icon: CircleHelp },
 ];
 
 export function ReportIssueScreen() {
-  const { createRequest } = useStore();
+  const { state, createRequest } = useStore();
   const { navigate, back } = useRouter();
   const toast = useToast();
   const { bp } = useBreakpoint();
@@ -354,7 +394,9 @@ export function ReportIssueScreen() {
   const [where, setWhere] = useState('Kitchen');
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
-  const [photos, setPhotos] = useState(0);
+  const [photos, setPhotos] = useState<PickedFile[]>([]);
+  const [sending, setSending] = useState(false);
+  const [clientKey] = useState(newClientKey); // a retried submit returns the same request
   const [caretaker, setCaretaker] = useState(false);
   const [times, setTimes] = useState('Weekdays after 5pm, Saturday any time');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -368,11 +410,13 @@ export function ReportIssueScreen() {
     if (desc.trim().length < 10) e.desc = 'Tell us a little more so the repairer comes prepared.';
     setErrors(e);
     if (Object.keys(e).length) return;
+    setSending(true);
     try {
-      const id = await createRequest({ tenantId: t.id, category: cat!, title: title.trim(), description: desc.trim(), where, urgency, photos, caretakerAccess: caretaker, access: times });
+      const id = await createRequest({ tenantId: t.id, category: cat!, title: title.trim(), description: desc.trim(), where, urgency, photos, caretakerAccess: caretaker, access: times, clientKey });
       toast(`Request ${id} sent to your manager`);
       navigate('myRequests', { id });
     } catch (e) {
+      setSending(false);
       toast(`Couldn’t send your request: ${e instanceof Error ? e.message : e}`, 'danger');
     }
   };
@@ -415,26 +459,18 @@ export function ReportIssueScreen() {
           <Input fieldStyle={{ marginTop: 14 }} label="Description" value={desc} onChangeText={setDesc} multiline placeholder="The double socket beside the fridge stopped working this morning. Other sockets in the kitchen are fine." error={errors.desc} />
           <View style={{ height: 22 }} />
           {section(4, 'Add photos (optional, up to 5)')}
-          <Row gap={10} wrap>
-            {Array.from({ length: photos }).map((_, i) => (
-              <View key={i} style={{ width: 76, height: 76, borderRadius: radius.md, backgroundColor: [colors.infoSoft, colors.primarySoft, colors.accentSoft][i % 3], alignItems: 'center', justifyContent: 'center' }}>
-                <ImageIcon size={18} color={colors.subtext} />
-                <Touch onPress={() => setPhotos(photos - 1)} style={{ position: 'absolute', top: 4, right: 4, backgroundColor: colors.card, borderRadius: 8, paddingHorizontal: 4 }}><T size={10} weight="bold">×</T></Touch>
-              </View>
-            ))}
-            {photos < 5 ? <Touch onPress={() => setPhotos(photos + 1)} style={{ width: 76, height: 76, borderRadius: radius.md, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.borderStrong, alignItems: 'center', justifyContent: 'center', gap: 2 }}><Plus size={16} color={colors.subtext} /><T size={10.5} color={colors.subtext}>Add photo</T></Touch> : null}
-          </Row>
+          <PhotoPicker photos={photos} onChange={setPhotos} />
           <View style={{ height: 22 }} />
           {section(5, 'Access')}
           <Checkbox checked={caretaker} onChange={setCaretaker} label="The caretaker can let the repairer in if I'm not home" />
           <Input fieldStyle={{ marginTop: 12 }} label="Best times to visit" value={times} onChangeText={setTimes} />
           <Row justify="space-between" style={{ marginTop: 22 }}>
             <Button title="Cancel" variant="ghost" onPress={() => back('home')} />
-            <Button title="Submit request" onPress={submit} size="lg" />
+            <Button title={sending ? (photos.length ? 'Uploading photos…' : 'Sending…') : 'Submit request'} onPress={submit} size="lg" loading={sending} disabled={sending} />
           </Row>
         </Card>
         <View style={{ width: bp === 'desktop' ? 300 : '100%', gap: 14 }}>
-          <Notice tone="danger" icon={Flame} title="Smell gas, see sparks or flooding?">Leave the flat if unsafe and call the 24-hour line: +234 1 700 2299</Notice>
+          <Notice tone="danger" icon={Flame} title="Smell gas, see sparks or flooding?">{`Leave the flat if unsafe and call the management office${state.settings.phone ? `: ${state.settings.phone}` : ''}.`}</Notice>
           <Card>
             <CardHeader title="What happens next" />
             {[[`${manager?.name.split(' ')[0] ?? 'Your manager'} reviews your request`, 'Usually within 4 hours'], ['A repairer is booked', "We'll tell you who and when"], ["You confirm it's fixed", 'Then we close the request']].map(([a, b], i) => (
@@ -453,7 +489,7 @@ export function ReportIssueScreen() {
 // ---------------------------------------------------------------- Notifications
 
 export function TenantNotificationsScreen() {
-  const { state, markNotificationRead, markAllNotificationsRead, updateTenant } = useStore();
+  const { state, markNotificationRead, markAllNotificationsRead } = useStore();
   const { navigate } = useRouter();
   const toast = useToast();
   const { bp } = useBreakpoint();
@@ -489,7 +525,7 @@ export function TenantNotificationsScreen() {
 // ---------------------------------------------------------------- Profile
 
 export function TenantProfileSelfScreen() {
-  const { state, updateTenant, signOut } = useStore();
+  const { updateTenant } = useStore();
   const toast = useToast();
   const { bp } = useBreakpoint();
   const { t, prop, unit, lease } = useMine();
@@ -550,14 +586,7 @@ export function TenantProfileSelfScreen() {
               <Row justify="space-between" gap={12}><View style={{ flex: 1 }}><T size={13} weight="semibold">WhatsApp messages</T><T size={11.5} color={colors.subtext}>Get everything on WhatsApp as well</T></View><Toggle value={f.whatsappPref} onChange={(v) => setF({ ...f, whatsappPref: v })} /></Row>
             </View>
           </Card>
-          <Card>
-            <CardHeader title="Security" />
-            <View style={{ gap: 14 }}>
-              <Row justify="space-between" gap={12}><View style={{ flex: 1 }}><T size={13} weight="semibold">Password</T><T size={11.5} color={colors.subtext}>Last changed 3 months ago</T></View><Button title="Change password" size="sm" variant="secondary" onPress={() => toast('We sent a reset link to your email')} /></Row>
-              <Row justify="space-between" gap={12}><View style={{ flex: 1 }}><T size={13} weight="semibold">Two-step verification</T><T size={11.5} color={colors.subtext}>Code sent by SMS when you sign in on a new device</T></View><Button title="Manage" size="sm" variant="secondary" onPress={() => toast('Two-step verification is on', 'info')} /></Row>
-              <Row justify="space-between" gap={12}><View style={{ flex: 1 }}><T size={13} weight="semibold">Sign out of all devices</T><T size={11.5} color={colors.subtext}>2 active sessions</T></View><Button title="Sign out everywhere" size="sm" variant="secondary" onPress={signOut} /></Row>
-            </View>
-          </Card>
+          <AccountSecurityCard />
         </View>
       </View>
 
@@ -568,22 +597,48 @@ export function TenantProfileSelfScreen() {
 // ---------------------------------------------------------------- Documents
 
 export function TenantDocumentsScreen() {
-  const { state } = useStore();
+  const { state, addDocument } = useStore();
   const toast = useToast();
-  const { t } = useMine();
+  const openDoc = useOpenDocument();
+  const pick = usePick();
+  const { t, prop, unit } = useMine();
+  const [uploading, setUploading] = useState(false);
   if (!t) return null;
+  const canUpload = state.settings.selfDocs;
+  const idRequested = !t.identification.verified && state.notifications.some((n) => n.audience === t.id && n.title === 'Please upload a new ID.');
+  const uploadId = async (source: 'files' | 'camera') => {
+    const [f] = await pick(() => (source === 'camera' ? pickPhotos('camera') : pickDocuments(ID_TYPES)), 'documents', ID_TYPES);
+    if (!f) return;
+    setUploading(true);
+    try {
+      const ext = f.name.includes('.') ? f.name.slice(f.name.lastIndexOf('.')) : '';
+      await addDocument({ name: `${t.identification.type.split(' (')[0] || 'ID'} – ${t.name}${ext}`, folder: 'Tenant ID and KYC', linkedTo: `${prop?.short ?? ''} · ${unit?.code ?? ''}`, tenantId: t.id, propertyId: t.propertyId }, f);
+      toast('ID uploaded. Your manager will review it.');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), 'danger');
+    } finally {
+      setUploading(false);
+    }
+  };
   const docs = state.documents.filter((d) => d.tenantId === t.id || (d.propertyId === t.propertyId && d.folder === 'Property papers' && d.name.startsWith('Estate rules')));
   const groups = ['Lease agreements', 'Receipts', 'Tenant ID and KYC', 'Property papers', 'Maintenance'] as const;
   return (
     <Page maxWidth={1000}>
-      <PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'Documents' }]} title="Documents" subtitle="Your lease, receipts and estate papers in one place." />
+      <PageHeader crumbs={[{ label: 'Home', to: 'home' }, { label: 'Documents' }]} title="Documents" subtitle="Your lease, receipts and estate papers in one place."
+        actions={canUpload ? <Button title={uploading ? 'Uploading…' : 'Upload ID'} icon={Upload} variant="secondary" loading={uploading} disabled={uploading} onPress={() => void uploadId('files')} /> : undefined} />
+      {idRequested ? (
+        <Notice tone="warning" title="Your manager asked for a new ID" style={{ marginBottom: 14 }}
+          action={canUpload ? <Row gap={8} wrap><Button title="Choose file" size="sm" disabled={uploading} onPress={() => void uploadId('files')} />{Platform.OS !== 'web' ? <Button title="Take photo" size="sm" variant="secondary" disabled={uploading} onPress={() => void uploadId('camera')} /> : null}</Row> : undefined}>
+          {canUpload ? 'Upload a clear photo or scan of a valid ID. Check your notifications for the reason.' : 'Send the new ID to your property manager. Uploads from the portal are switched off.'}
+        </Notice>
+      ) : null}
       {groups.map((g) => {
         const list = docs.filter((d) => d.folder === g);
         if (!list.length) return null;
         return (
           <Card key={g} style={{ marginBottom: 14 }}>
             <CardHeader title={g === 'Tenant ID and KYC' ? 'My identification' : g === 'Property papers' ? 'Estate documents' : g} />
-            <View style={{ gap: 8 }}>{list.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${(d.sizeKb / 1024).toFixed(1)} MB`} right={<Button title="Download" size="sm" variant="secondary" onPress={() => toast(`Downloading ${d.name}`)} />} />)}</View>
+            <View style={{ gap: 8 }}>{list.map((d) => <FileRow key={d.id} name={d.name} kind={d.kind} meta={`${fmtDate(d.date)} · ${(d.sizeKb / 1024).toFixed(1)} MB`} onPress={() => openDoc(d)} right={<Button title="Download" size="sm" variant="secondary" onPress={() => openDoc(d, true)} />} />)}</View>
           </Card>
         );
       })}

@@ -16,6 +16,7 @@ import { BuildingArt } from '../../components/art';
 import { Donut, LineChart } from '../../components/charts';
 import { usePropertyStats, PropertyStats } from '../../lib/stats';
 import { downloadCSV } from '../../lib/export';
+import { isOpen } from '../../lib/workflow';
 import type { PropertyType } from '../../types';
 import { MONTHS, addMonths, daysUntil, fmtDate, leaseStatus, naira, nairaCompact, pct } from '../../utils';
 
@@ -205,7 +206,7 @@ export function PropertyDetailScreen({ id }: { id: string }) {
   const tenants = state.tenants.filter((t) => t.propertyId === p.id && t.status === 'active');
   const leases = state.leases.filter((l) => l.propertyId === p.id && !l.renewedTo && !l.terminated && !l.draft);
   const requests = state.requests.filter((r) => r.propertyId === p.id);
-  const open = requests.filter((r) => ['new', 'assigned', 'in_progress'].includes(r.status));
+  const open = requests.filter((r) => isOpen(r));
   const expiring = leases.map((l) => ({ l, d: daysUntil(l.end) })).filter((x) => x.d <= 90).sort((a, b) => a.d - b.d);
   const vacant = stats.units.filter((u) => u.status !== 'occupied');
   const docs = state.documents.filter((d) => d.propertyId === p.id && d.folder === 'Property papers');

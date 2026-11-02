@@ -1,27 +1,31 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import {
   Activity, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, FileText, Folder, Grid2x2, House, LayoutGrid, LogOut, MapPin, Megaphone,
-  Menu as MenuIcon, MessageSquare, PanelLeft, Plus, Search, Settings as SettingsIcon, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users,
-  Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, X,
+  Menu as MenuIcon, MessageCircle, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users,
+  Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, WifiOff, X, ClipboardList, Contact, Ellipsis, Receipt,
 } from 'lucide-react-native';
 import { colors, font, radius, shadow, useBreakpoint } from '../theme';
 import { useLookup, useScope, useStore } from '../store/AppContext';
+import { useChat } from '../store/ChatContext';
+import { isOpen } from '../lib/workflow';
 import { useRouter } from '../nav/router';
-import { Avatar, Menu, T, Touch, Select, Link } from './ui';
-import { daysUntil, leaseStatus } from '../utils';
+import { Avatar, Badge, Menu, T, Tabs, Touch, Select, Link, useToast } from './ui';
+import { daysUntil, fmtTime, leaseStatus, todayISO } from '../utils';
 import type { Role } from '../types';
 
 // ---------------------------------------------------------------- navigation model
 
-interface NavItem { key: string; label: string; icon: LucideIcon; badge?: number; indent?: boolean }
+/** A screen shown as a tab inside a merged sidebar item (e.g. Locations inside Properties). */
+interface NavChild { key: string; label: string; icon?: LucideIcon }
+interface NavItem { key: string; label: string; icon: LucideIcon; badge?: number; children?: NavChild[] }
 interface NavSection { title: string; items: NavItem[] }
 
 const ROUTE_TO_NAV: Record<string, string> = {
   property: 'properties', addProperty: 'properties', unit: 'units', tenant: 'tenants', onboarding: 'tenants',
-  lease: 'leases', renew: 'leases', request: 'requests', requests: 'maintenance', myRequest: 'myRequests',
+  lease: 'leases', renew: 'leases', request: 'requests', myRequest: 'myRequests',
 };
 
 const ROLE_LABEL: Record<Role, string> = { super_admin: 'Super Admin', manager: 'Property Manager', accountant: 'Accountant', caretaker: 'Caretaker', tenant: 'Tenant' };
@@ -29,57 +33,109 @@ export const roleLabel = (r: Role) => ROLE_LABEL[r];
 
 export function homeRouteFor(role: Role): string {
   if (role === 'tenant') return 'home';
-  if (role === 'caretaker') return 'maintenance';
+  if (role === 'caretaker') return 'jobs';
   return 'dashboard';
+}
+
+/** Roles that get the phone layout (bottom tabs) on small screens; the rest stay web-first. */
+const MOBILE_ROLES: Role[] = ['tenant', 'caretaker'];
+
+/** Screens each staff role may open (null: all). Tenants get the screens in the TENANT map of src/screens. */
+const STAFF_ACCESS: Record<Exclude<Role, 'tenant'>, string[] | null> = {
+  super_admin: null,
+  manager: ['dashboard', 'messages', 'properties', 'locations', 'units', 'tenants', 'leases', 'payments', 'maintenance', 'requests', 'vendors', 'communications', 'reports', 'documents', 'notifications', 'logs', 'help'],
+  accountant: ['dashboard', 'messages', 'properties', 'units', 'tenants', 'leases', 'payments', 'reports', 'documents', 'notifications', 'help'],
+  caretaker: ['jobs', 'contacts', 'messages', 'maintenance', 'requests', 'vendors', 'units', 'notifications', 'help'],
+};
+
+function canOpen(role: Role, key: string): boolean {
+  if (role === 'tenant') return true;
+  const list = STAFF_ACCESS[role];
+  return !list || list.includes(key);
 }
 
 function useNav(): NavSection[] {
   const { state, me, myTenant } = useStore();
+  const { unreadTotal } = useChat();
   const scope = useScope();
   if (!me) return [];
   if (me.role === 'tenant') {
-    const open = state.requests.filter((r) => r.tenantId === myTenant?.id && r.status !== 'closed').length;
-    const unread = state.notifications.filter((n) => n.audience === myTenant?.id && !n.read).length;
+    const open = state.requests.filter((r) => r.tenantId === myTenant?.id && (isOpen(r) || r.status === 'resolved')).length;
     return [
       { title: 'My home', items: [
         { key: 'home', label: 'Home', icon: House },
-        { key: 'myLease', label: 'My Lease', icon: FileText, indent: false },
-        { key: 'myRequests', label: 'My Requests', icon: Wrench, badge: open },
-        { key: 'reportIssue', label: 'Report an Issue', icon: Plus },
+        { key: 'messages', label: 'Messages', icon: MessageCircle, badge: unreadTotal },
+        { key: 'myRequests', label: 'Requests', icon: Wrench, badge: open, children: [{ key: 'myRequests', label: 'My requests' }, { key: 'reportIssue', label: 'Report an issue' }] },
+        { key: 'myLease', label: 'My Lease', icon: FileText },
       ] },
       { title: 'Account', items: [
         { key: 'myDocuments', label: 'Documents', icon: Folder },
-        { key: 'myNotifications', label: 'Notifications', icon: Bell, badge: unread },
         { key: 'profile', label: 'Profile', icon: UserRound },
-        { key: 'help', label: 'Help & Support', icon: CircleHelp },
       ] },
     ];
   }
   const leaseAlerts = scope.currentLeases.filter((l) => daysUntil(l.end) <= 30).length;
   const newReqs = scope.requests.filter((r) => r.status === 'new').length;
-  const unread = state.notifications.filter((n) => n.audience === 'staff' && !n.read).length;
   const r = me.role;
+  const myJobs = scope.requests.filter((x) => x.caretakerId === me.id && (x.status === 'assigned' || x.status === 'in_progress')).length;
   const all: NavSection[] = [
-    { title: 'Overview', items: [{ key: 'dashboard', label: 'Dashboard', icon: LayoutGrid }] },
-    { title: 'Portfolio', items: [{ key: 'properties', label: 'Properties', icon: Building2 }, { key: 'locations', label: 'Locations', icon: MapPin }, { key: 'units', label: 'Blocks & Units', icon: Grid2x2 }] },
-    { title: 'People', items: [{ key: 'tenants', label: 'Tenants', icon: Users }, { key: 'leases', label: 'Leases', icon: FileText, badge: leaseAlerts }] },
-    { title: 'Operations', items: [{ key: 'maintenance', label: 'Maintenance', icon: Wrench, badge: newReqs }, { key: 'vendors', label: 'Vendors', icon: Briefcase }, { key: 'communications', label: 'Communications', icon: Megaphone }] },
-    { title: 'Insights', items: [{ key: 'reports', label: 'Reports', icon: ChartColumn }, { key: 'documents', label: 'Documents', icon: Folder }, { key: 'notifications', label: 'Notifications', icon: Bell, badge: unread }] },
-    { title: 'Administration', items: [{ key: 'users', label: 'Users & Permissions', icon: ShieldCheck }, { key: 'logs', label: 'Activity Logs', icon: Activity }, { key: 'settings', label: 'Settings', icon: SlidersHorizontal }, { key: 'help', label: 'Help & Support', icon: CircleHelp }] },
+    ...(r === 'caretaker' ? [{ title: 'My work', items: [{ key: 'jobs', label: 'Today’s jobs', icon: ClipboardList, badge: myJobs }, { key: 'contacts', label: 'Property contacts', icon: Contact }] }] : []),
+    { title: 'Overview', items: [
+      { key: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+      { key: 'messages', label: 'Messages', icon: MessageCircle, badge: unreadTotal, children: [{ key: 'messages', label: 'Chats' }, { key: 'communications', label: 'Announcements', icon: Megaphone }] },
+    ] },
+    { title: 'Manage', items: [
+      { key: 'properties', label: 'Properties', icon: Building2, children: [{ key: 'properties', label: 'Properties' }, { key: 'locations', label: 'Locations', icon: MapPin }, { key: 'units', label: 'Blocks & Units', icon: Grid2x2 }] },
+      { key: 'tenants', label: 'Tenants & Leases', icon: Users, badge: leaseAlerts, children: [{ key: 'tenants', label: 'Tenants' }, { key: 'leases', label: 'Leases', icon: FileText }] },
+      { key: 'payments', label: 'Payments', icon: Receipt },
+      { key: 'maintenance', label: 'Maintenance', icon: Wrench, badge: newReqs, children: [{ key: 'maintenance', label: 'Overview' }, { key: 'requests', label: 'Requests' }, { key: 'vendors', label: 'Vendors', icon: Briefcase }] },
+    ] },
+    { title: 'Insights', items: [{ key: 'reports', label: 'Reports', icon: ChartColumn }, { key: 'documents', label: 'Documents', icon: Folder }] },
+    { title: 'Admin', items: [
+      { key: 'settings', label: 'Settings', icon: SlidersHorizontal, children: [{ key: 'settings', label: 'General' }, { key: 'users', label: 'Users & Permissions', icon: ShieldCheck }, { key: 'logs', label: 'Activity Logs', icon: Activity }] },
+    ] },
   ];
-  const allow: Record<Exclude<Role, 'tenant'>, string[] | null> = {
-    super_admin: null,
-    manager: ['dashboard', 'properties', 'locations', 'units', 'tenants', 'leases', 'maintenance', 'vendors', 'communications', 'reports', 'documents', 'notifications', 'logs', 'help'],
-    accountant: ['dashboard', 'properties', 'units', 'tenants', 'leases', 'reports', 'documents', 'notifications', 'help'],
-    caretaker: ['maintenance', 'vendors', 'units', 'notifications', 'help'],
-  };
-  const list = allow[r as Exclude<Role, 'tenant'>];
-  return all.map((s) => ({ ...s, items: s.items.filter((i) => !list || list.includes(i.key)) })).filter((s) => s.items.length);
+  // Keep the children this role may open. An item whose own screen is off limits opens its first allowed
+  // child instead, and an item left with one child is shown as that child (a manager's Settings is Activity Logs).
+  const items = (s: NavSection): NavItem[] => s.items.flatMap((it) => {
+    const kids = it.children?.filter((c) => canOpen(r, c.key));
+    if (!kids) return canOpen(r, it.key) ? [it] : [];
+    if (!kids.length) return [];
+    if (kids.length === 1) {
+      const only = kids[0];
+      return [only.key === it.key ? { ...it, children: undefined } : { key: only.key, label: only.label, icon: only.icon ?? it.icon, badge: it.badge }];
+    }
+    return [{ ...it, key: kids[0].key, children: kids }];
+  });
+  return all.map((s) => ({ ...s, items: items(s) })).filter((s) => s.items.length);
+}
+
+/** The sidebar item a route belongs to: itself, the merged item it is a tab of, or its list screen's item. */
+function navKeyFor(nav: NavSection[], route: string): string {
+  const key = ROUTE_TO_NAV[route] ?? route;
+  for (const s of nav) for (const it of s.items) if (it.key === key || it.children?.some((c) => c.key === key)) return it.key;
+  return key;
 }
 
 export function useCanAccess(key: string): boolean {
+  const { me } = useStore();
+  return !!me && canOpen(me.role, key);
+}
+
+/** Tabs across the screens merged into one sidebar item, shown at the top of each of those screens. */
+export function SectionTabs({ style }: { style?: StyleProp<ViewStyle> }) {
   const nav = useNav();
-  return nav.some((s) => s.items.some((i) => i.key === key));
+  const { route, replace } = useRouter();
+  const group = nav.flatMap((s) => s.items).find((it) => it.children?.some((c) => c.key === route.name));
+  if (!group?.children || group.children.length < 2) return null;
+  return (
+    <Tabs
+      value={route.name}
+      onChange={(k) => replace(k)}
+      tabs={group.children.map((c) => ({ value: c.key, label: c.label }))}
+      style={style}
+    />
+  );
 }
 
 // ---------------------------------------------------------------- brand
@@ -102,10 +158,10 @@ export function Brand({ size = 'md', light = true }: { size?: 'md' | 'lg'; light
 
 function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: () => void }) {
   const nav = useNav();
-  const { route, navigate } = useRouter();
+  const { route, navigate, go } = useRouter();
   const { me, myTenant } = useStore();
   const lookup = useLookup();
-  const active = ROUTE_TO_NAV[route.name] ?? route.name;
+  const active = navKeyFor(nav, route.name);
   const insets = useSafeAreaInsets();
   if (!me) return null;
   const sub = me.role === 'tenant' && myTenant ? `Tenant · ${lookup.property(myTenant.propertyId)?.short ?? ''} ${lookup.unit(myTenant.unitId)?.code ?? ''}` : `${roleLabel(me.role)}${me.role === 'super_admin' ? ' · Landlord' : ''}`;
@@ -124,7 +180,7 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                 <Touch
                   key={it.key}
                   accessibilityLabel={it.label}
-                  onPress={() => { navigate(it.key); onNavigate?.(); }}
+                  onPress={() => { go(it.key); onNavigate?.(); }}
                   style={[{ flexDirection: 'row', alignItems: 'center', gap: 11, height: 38, paddingHorizontal: collapsed ? 0 : 10, justifyContent: collapsed ? 'center' : 'flex-start', borderRadius: radius.sm + 1, marginBottom: 1 }, on && { backgroundColor: colors.sidebarRaised }]}
                   hoverStyle={{ backgroundColor: on ? colors.sidebarRaised : 'rgba(255,255,255,0.04)' }}
                 >
@@ -143,7 +199,7 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
         ))}
       </ScrollView>
       <View style={{ padding: 10, paddingBottom: 10 + insets.bottom }}>
-        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'settings'); onNavigate?.(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: collapsed ? 6 : 10, borderRadius: radius.md, backgroundColor: colors.sidebarRaised, justifyContent: collapsed ? 'center' : 'flex-start' }}>
+        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: collapsed ? 6 : 10, borderRadius: radius.md, backgroundColor: colors.sidebarRaised, justifyContent: collapsed ? 'center' : 'flex-start' }}>
           <Avatar name={me.name} size={32} tone={[colors.accent, colors.sidebar]} />
           {!collapsed ? (
             <View style={{ flex: 1 }}>
@@ -179,7 +235,7 @@ function SearchBox({ compact, autoFocus, onDone }: { compact?: boolean; autoFocu
   const results = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (s.length < 2) return [];
-    const out: Array<{ key: string; group: string; title: string; sub: string; go: () => void }> = [];
+    const out: { key: string; group: string; title: string; sub: string; go: () => void }[] = [];
     scope.tenants.filter((t) => t.name.toLowerCase().includes(s) || t.code.toLowerCase().includes(s) || t.phone.replace(/\s/g, '').includes(s.replace(/\s/g, ''))).slice(0, 5)
       .forEach((t) => out.push({ key: t.id, group: 'Tenants', title: t.name, sub: `${t.code} · ${lookup.property(t.propertyId)?.short ?? 'No unit'} ${lookup.unit(t.unitId)?.code ?? ''}`, go: () => navigate('tenant', { id: t.id }) }));
     scope.properties.filter((p) => p.name.toLowerCase().includes(s)).slice(0, 3)
@@ -235,10 +291,10 @@ function SearchBox({ compact, autoFocus, onDone }: { compact?: boolean; autoFocu
 
 // ---------------------------------------------------------------- topbar
 
-function Topbar({ onToggleSidebar, mobile }: { onToggleSidebar: () => void; mobile: boolean }) {
+function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void; mobile: boolean; tabs: boolean }) {
   const { state, me, myTenant, signOut, setLocationFilter } = useStore();
+  const { unreadTotal } = useChat();
   const { navigate } = useRouter();
-  const scope = useScope();
   const lookup = useLookup();
   const { bp } = useBreakpoint();
   const [searching, setSearching] = useState(false);
@@ -247,7 +303,6 @@ function Topbar({ onToggleSidebar, mobile }: { onToggleSidebar: () => void; mobi
   const isTenant = me.role === 'tenant';
   const audience = isTenant ? myTenant?.id : 'staff';
   const unread = state.notifications.filter((n) => n.audience === audience && !n.read).length;
-  const newReqs = isTenant ? 0 : scope.requests.filter((r) => r.status === 'new').length;
   const canWrite = me.role === 'super_admin' || me.role === 'manager';
 
   const userMenu = (open: () => void) => (
@@ -264,7 +319,8 @@ function Topbar({ onToggleSidebar, mobile }: { onToggleSidebar: () => void; mobi
   );
 
   const menuItems = [
-    { label: isTenant ? 'My profile' : 'Account settings', icon: CircleUser, onPress: () => navigate(isTenant ? 'profile' : 'settings') },
+    { label: isTenant ? 'My profile' : 'My account', icon: CircleUser, onPress: () => navigate(isTenant ? 'profile' : 'account') },
+    { label: 'Messages', icon: MessageCircle, onPress: () => navigate('messages') },
     { label: 'Notifications', icon: Bell, onPress: () => navigate(isTenant ? 'myNotifications' : 'notifications') },
     { label: 'Help & Support', icon: CircleHelp, onPress: () => navigate('help') },
     { label: 'Sign out', icon: LogOut, danger: true, onPress: signOut },
@@ -280,9 +336,11 @@ function Topbar({ onToggleSidebar, mobile }: { onToggleSidebar: () => void; mobi
 
   return (
     <View style={[styles.topbar, { paddingTop: insets.top, height: (mobile ? 60 : 64) + insets.top, paddingHorizontal: mobile ? 10 : 20, gap: mobile ? 4 : 12 }]}>
-      <Touch onPress={onToggleSidebar} accessibilityLabel="Toggle navigation" style={{ width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
-        {mobile ? <MenuIcon size={21} color={colors.text} /> : <PanelLeft size={19} color={colors.textSoft} strokeWidth={1.8} />}
-      </Touch>
+      {tabs ? <View style={{ width: 6 }} /> : (
+        <Touch onPress={onToggleSidebar} accessibilityLabel={mobile ? 'Open menu' : 'Collapse or expand the sidebar'} style={{ width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
+          {mobile ? <MenuIcon size={21} color={colors.text} /> : <PanelLeft size={19} color={colors.textSoft} strokeWidth={1.8} />}
+        </Touch>
+      )}
       {mobile ? (
         <View style={{ flex: 1 }}><Brand light={false} /></View>
       ) : isTenant ? (
@@ -333,18 +391,18 @@ function Topbar({ onToggleSidebar, mobile }: { onToggleSidebar: () => void; mobi
           ) : null}
         </>
       )}
-      {mobile && !isTenant ? <IconBtn icon={Search} onPress={() => setSearching(true)} /> : null}
-      {!mobile ? <IconBtn icon={MessageSquare} badge={isTenant ? 0 : newReqs} onPress={() => navigate(isTenant ? 'myRequests' : 'requests')} /> : null}
-      <IconBtn icon={Bell} badge={unread} onPress={() => navigate(isTenant ? 'myNotifications' : 'notifications')} />
-      {!mobile ? <IconBtn icon={SlidersHorizontal} onPress={() => navigate(isTenant ? 'profile' : me.role === 'super_admin' ? 'settings' : 'help')} /> : null}
+      {mobile && !isTenant ? <IconBtn icon={Search} label="Search" onPress={() => setSearching(true)} /> : null}
+      {!tabs ? <IconBtn icon={MessageCircle} label="Messages" badge={unreadTotal} onPress={() => navigate('messages')} /> : null}
+      <IconBtn icon={Bell} label="Notifications" badge={unread} onPress={() => navigate(isTenant ? 'myNotifications' : 'notifications')} />
+      {!mobile ? <IconBtn icon={SlidersHorizontal} label={isTenant ? 'Profile' : me.role === 'super_admin' ? 'Settings' : 'Help'} onPress={() => navigate(isTenant ? 'profile' : me.role === 'super_admin' ? 'settings' : 'help')} /> : null}
       <Menu trigger={userMenu} items={menuItems} width={220} />
     </View>
   );
 }
 
-function IconBtn({ icon: Icon, badge, onPress }: { icon: LucideIcon; badge?: number; onPress: () => void }) {
+function IconBtn({ icon: Icon, badge, onPress, label }: { icon: LucideIcon; badge?: number; onPress: () => void; label: string }) {
   return (
-    <Touch onPress={onPress} style={{ width: 38, height: 38, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
+    <Touch onPress={onPress} accessibilityLabel={badge ? `${label}, ${badge} new` : label} style={{ width: 38, height: 38, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
       <Icon size={19} color={colors.textSoft} strokeWidth={1.8} />
       {badge ? (
         <View style={{ position: 'absolute', top: 3, right: 2, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.card }}>
@@ -355,21 +413,121 @@ function IconBtn({ icon: Icon, badge, onPress }: { icon: LucideIcon; badge?: num
   );
 }
 
+// ---------------------------------------------------------------- live status
+
+/** Shown under the top bar while the live feed is down: what's on screen may be out of date. */
+function OfflineBanner() {
+  const { live } = useStore();
+  if (live.connection !== 'offline') return null;
+  return (
+    <View accessibilityRole="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: colors.warningSoft, borderBottomWidth: 1, borderBottomColor: colors.warning + '40' }}>
+      <WifiOff size={16} color={colors.warning} />
+      <T size={12.5} weight="medium" style={{ flex: 1 }}>
+        You’re offline{live.updatedAt ? `. Showing updates up to ${fmtTime(live.updatedAt)}` : ''}. Changes won’t save until you reconnect.
+      </T>
+    </View>
+  );
+}
+
+/** "Live · updated 10:42" beside the title of screens that follow requests as they change. */
+export function LiveTag() {
+  const { live } = useStore();
+  if (live.connection === 'offline') return <Badge label="Offline" tone="warning" dot size="sm" />;
+  if (live.connection === 'connecting' || !live.updatedAt) return <Badge label="Connecting…" tone="neutral" dot size="sm" />;
+  return <Badge label={`Live · updated ${fmtTime(live.updatedAt)}`} tone="success" dot size="sm" />;
+}
+
+// ---------------------------------------------------------------- shell
+
+// ---------------------------------------------------------------- bottom tabs (phones)
+
+interface Tab { key: string; label: string; icon: LucideIcon; badge?: number; raised?: boolean }
+
+/** Set while the bottom tabs are on screen; they already pad for the home indicator. */
+const TabsShown = createContext(false);
+
+function useTabs(): Tab[] {
+  const { state, me, myTenant } = useStore();
+  const { unreadTotal } = useChat();
+  const scope = useScope();
+  if (!me) return [];
+  if (me.role === 'tenant') {
+    const toConfirm = state.requests.filter((r) => r.tenantId === myTenant?.id && r.status === 'resolved').length;
+    return [
+      { key: 'home', label: 'Home', icon: House },
+      { key: 'myRequests', label: 'Requests', icon: Wrench, badge: toConfirm },
+      { key: 'reportIssue', label: 'Report', icon: Plus, raised: true },
+      { key: 'messages', label: 'Chats', icon: MessageCircle, badge: unreadTotal },
+    ];
+  }
+  const today = todayISO();
+  const due = scope.requests.filter((r) => r.caretakerId === me.id && r.status === 'assigned' && (r.visit?.date ?? today) <= today).length;
+  return [
+    { key: 'jobs', label: 'Jobs', icon: ClipboardList, badge: due },
+    { key: 'requests', label: 'Requests', icon: Wrench },
+    { key: 'messages', label: 'Chats', icon: MessageCircle, badge: unreadTotal },
+    { key: 'contacts', label: 'Contacts', icon: Contact },
+  ];
+}
+
+function BottomTabs({ onMore }: { onMore: () => void }) {
+  const tabs = useTabs();
+  const { route, go } = useRouter();
+  const insets = useSafeAreaInsets();
+  // A tab of its own beats the sidebar grouping (caretakers have a Requests tab; the sidebar files it under Maintenance).
+  const active = tabs.some((t) => t.key === route.name) ? route.name : ROUTE_TO_NAV[route.name] ?? route.name;
+  const item = (t: Tab, on: boolean, onPress: () => void) => (
+    <Pressable key={t.key} onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: on }}
+      accessibilityLabel={t.badge ? `${t.label}, ${t.badge} waiting` : t.label}
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 56 }}>
+      {t.raised ? (
+        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: -10, ...shadow.pop }}>
+          <t.icon size={22} color={colors.white} strokeWidth={2.2} />
+        </View>
+      ) : (
+        <View>
+          <t.icon size={22} color={on ? colors.primary : colors.subtext} strokeWidth={on ? 2.1 : 1.8} />
+          {t.badge ? (
+            <View style={{ position: 'absolute', top: -5, right: -9, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.card }}>
+              <T size={9.5} weight="bold" color={colors.white} style={{ lineHeight: 12 }}>{t.badge > 99 ? '99+' : t.badge}</T>
+            </View>
+          ) : null}
+        </View>
+      )}
+      <T size={11} weight={on ? 'semibold' : 'medium'} color={on ? colors.primary : colors.subtext}>{t.label}</T>
+    </Pressable>
+  );
+  return (
+    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, paddingBottom: insets.bottom, paddingHorizontal: 4 }}>
+      {tabs.map((t) => item(t, active === t.key, () => go(t.key)))}
+      {item({ key: 'more', label: 'More', icon: Ellipsis }, !tabs.some((t) => t.key === active), onMore)}
+    </View>
+  );
+}
+
 // ---------------------------------------------------------------- shell
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { bp } = useBreakpoint();
+  const { me } = useStore();
   const [collapsed, setCollapsed] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const { route } = useRouter();
   const overlay = bp !== 'desktop';
-  useEffect(() => setDrawer(false), [route]);
+  const tabs = bp === 'mobile' && !!me && MOBILE_ROLES.includes(me.role);
+  const routeKey = JSON.stringify(route);
+  const [previousRoute, setPreviousRoute] = useState(routeKey);
+  if (previousRoute !== routeKey) { setPreviousRoute(routeKey); setDrawer(false); }
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
       {!overlay ? <View style={{ width: collapsed ? 72 : 244 }}><Sidebar collapsed={collapsed} /></View> : null}
       <View style={{ flex: 1 }}>
-        <Topbar mobile={bp === 'mobile'} onToggleSidebar={() => (overlay ? setDrawer(true) : setCollapsed((c) => !c))} />
-        <View style={{ flex: 1, zIndex: 1 }}>{children}</View>
+        <Topbar mobile={bp === 'mobile'} tabs={tabs} onToggleSidebar={() => (overlay ? setDrawer(true) : setCollapsed((c) => !c))} />
+        <OfflineBanner />
+        <TabsShown.Provider value={tabs}>
+          <View style={{ flex: 1, zIndex: 1 }}>{children}</View>
+        </TabsShown.Provider>
+        {tabs ? <BottomTabs onMore={() => setDrawer(true)} /> : null}
       </View>
       {overlay ? (
         <Modal transparent visible={drawer} animationType="fade" onRequestClose={() => setDrawer(false)}>
@@ -387,18 +545,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
 export interface Crumb { label: string; to?: string; params?: Record<string, string> }
 
+/** Pull down to reload from the server (phones; browsers have their own refresh). */
+function usePullToRefresh() {
+  const { refresh } = useStore();
+  const toast = useToast();
+  const [refreshing, setRefreshing] = useState(false);
+  if (Platform.OS === 'web') return undefined;
+  const onRefresh = async () => {
+    setRefreshing(true);
+    const ok = await refresh();
+    setRefreshing(false);
+    if (!ok) toast('Can’t reach the server. Showing what was last loaded.', 'danger');
+  };
+  return <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} colors={[colors.primary]} />;
+}
+
 export function Page({ children, maxWidth, style, footer }: { children: React.ReactNode; maxWidth?: number; style?: StyleProp<ViewStyle>; footer?: React.ReactNode }) {
   const { isMobile } = useBreakpoint();
-  const ref = useRef<ScrollView>(null);
-  const { route } = useRouter();
-  useEffect(() => { ref.current?.scrollTo({ y: 0, animated: false }); }, [route]);
+  const refreshControl = usePullToRefresh();
+  // Android resizes the window for the keyboard by itself; iOS needs the padding.
   return (
-    <View style={{ flex: 1 }}>
-      <ScrollView ref={ref} style={{ flex: 1 }} contentContainerStyle={[{ padding: isMobile ? 16 : 28, paddingBottom: 48 }, style]} keyboardShouldPersistTaps="handled">
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={[{ padding: isMobile ? 16 : 28, paddingBottom: 48 }, style]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" refreshControl={refreshControl}>
         <View style={{ width: '100%', maxWidth: maxWidth ?? 1480, alignSelf: 'center' }}>{children}</View>
       </ScrollView>
       {footer}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -407,6 +579,7 @@ export function PageHeader({ crumbs, title, subtitle, actions, badge }: { crumbs
   const { isMobile } = useBreakpoint();
   return (
     <View style={{ marginBottom: title || actions ? 22 : 12 }}>
+      <SectionTabs style={{ marginBottom: 16 }} />
       {crumbs?.length ? (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
           {crumbs.map((c, i) => (
@@ -433,8 +606,9 @@ export function PageHeader({ crumbs, title, subtitle, actions, badge }: { crumbs
 
 export function StickyFooter({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
+  const tabs = useContext(TabsShown);
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 + insets.bottom, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <View style={{ borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 + (tabs ? 0 : insets.bottom), flexDirection: 'row', alignItems: 'center', gap: 10 }}>
       {children}
     </View>
   );

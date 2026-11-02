@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 
 /** Download rows as CSV in the browser. Returns false where downloads aren't supported (native). */
-export function downloadCSV(filename: string, rows: Array<Record<string, string | number | undefined>>): boolean {
+export function downloadCSV(filename: string, rows: Record<string, string | number | undefined>[]): boolean {
   if (Platform.OS !== 'web' || typeof document === 'undefined' || !rows.length) return false;
   const headers = Object.keys(rows[0]);
   const esc = (v: unknown) => {

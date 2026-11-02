@@ -1,33 +1,38 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useNow } from '../../hooks/useNow';
+import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
 import {
-  Briefcase, Check, CircleCheck, Clock, Download, Ellipsis, Image as ImageIcon, Mail, MessageSquare, Pause, Phone, Play, Plus, Search, Send, Star,
+  Briefcase, Check, CircleCheck, Clock, Download, Ellipsis, Mail, MessageSquare, Pause, Phone, Play, Plus, Search, Send, Star,
   TriangleAlert, Wrench, X, Zap, ChevronRight, Hourglass, Pencil,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
 import { useLookup, useScope, useStore } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
-import { Page, PageHeader } from '../../components/shell';
+import { LiveTag, Page, PageHeader } from '../../components/shell';
+import { useMessageTenant } from '../Messages';
 import {
-  Avatar, Badge, Button, Card, CardHeader, Checkbox, Chip, Dialog, EmptyState, Grid, IconTile, Input, KV, Link, Menu, Notice, Row, Segmented, Select,
+  Avatar, Badge, Button, CallButton, Card, CardHeader, Checkbox, Chip, Dialog, EmptyState, Grid, IconTile, Input, KV, Link, Menu, Notice, Row, Segmented, Select,
   T, Tabs, Touch, useToast,
 } from '../../components/ui';
+import { PhotoPicker, RequestPhotos } from '../../components/files';
+import { TRANSITION_LABEL, TransitionDialog } from '../../components/requests';
+import { allowedTransitions, canAssign, isOpen, newClientKey, type Transition } from '../../lib/workflow';
+import type { PickedFile } from '../../lib/files';
 import { DataTable, Pagination, PRIORITY, PriorityBadge, REQ_STATUS, RequestStatusBadge, usePaged } from '../../components/data';
 import { BarChart, Donut, HBarList } from '../../components/charts';
 import { usePortfolio } from '../../lib/stats';
 import { downloadCSV } from '../../lib/export';
 import { ALL_CATEGORIES } from '../../data/seed';
 import type { Category, MaintenanceRequest, Priority, RequestStatus, Vendor } from '../../types';
-import { addDays, fmtDate, fmtShort, fmtStamp, naira, nairaCompact, parseDate, timeAgo, toISODate } from '../../utils';
+import { addDays, fmtDate, fmtShort, fmtStamp, naira, nairaCompact, parseDate, toISODate } from '../../utils';
 
 const hoursBetween = (a: string, b: string) => (parseDate(b).getTime() - parseDate(a).getTime()) / 3600000;
 
 // ---------------------------------------------------------------- Overview
 
 export function MaintenanceOverviewScreen() {
-  const { state, me } = useStore();
+  const { me } = useStore();
   const scope = useScope();
-  const lookup = useLookup();
   const pf = usePortfolio();
   const { navigate } = useRouter();
   const [range, setRange] = useState('30');
@@ -50,28 +55,23 @@ export function MaintenanceOverviewScreen() {
     return { label: c, value: Math.round(v * 10) / 10, display: `${(Math.round(v * 10) / 10).toFixed(1)}d`, color: v > target * 1.2 ? colors.danger : v > target ? colors.vizMaint : colors.primary };
   }).filter((x) => x.value > 0).sort((a, b) => b.value - a.value);
 
-  const Tile = ({ label, value, sub, dot, dark, onPress }: { label: string; value: string | number; sub: string; dot?: string; dark?: boolean; onPress?: () => void }) => (
-    <Card pad={14} onPress={onPress} tint={dark ? colors.sidebar : undefined} style={dark ? { borderColor: colors.sidebar } : undefined}>
-      <Row gap={6}>{dot ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }} /> : null}<T size={12} color={dark ? colors.sidebarText : colors.subtext}>{label}</T></Row>
-      <T size={24} weight="bold" color={dark ? colors.white : colors.text} style={{ marginTop: 6 }}>{value}</T>
-      <T size={11.5} color={dark ? colors.sidebarMuted : colors.subtext}>{sub}</T>
-    </Card>
-  );
+
 
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance' }]} title="Maintenance overview"
+      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance' }]} title="Maintenance overview" badge={<LiveTag />}
         actions={<>
           <Segmented value="overview" onChange={(v) => v === 'all' && navigate('requests')} options={[{ value: 'overview', label: 'Overview' }, { value: 'all', label: 'All requests' }]} />
           <Select compact value={range} onChange={setRange} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }]} style={{ minWidth: 140 }} />
           {canCreate ? <Button title="New request" icon={Plus} onPress={() => setCreateOpen(true)} /> : null}
         </>} />
-      <Grid cols={{ mobile: 2, tablet: 4, desktop: 7 }} gap={12}>
-        <Tile dark label="Open requests" value={pf.open.length} sub="New + assigned + in progress" onPress={() => navigate('requests', { status: 'open' })} />
+      <Grid cols={{ mobile: 2, tablet: 4, desktop: 8 }} gap={12}>
+        <Tile dark label="Open requests" value={pf.open.length} sub="Still needing action" onPress={() => navigate('requests', { status: 'open' })} />
         <Tile label="New" dot={colors.info} value={byStatus('new')} sub="Awaiting a vendor" onPress={() => navigate('requests', { status: 'new' })} />
         <Tile label="Assigned" dot={colors.purple} value={byStatus('assigned')} sub="Vendor scheduled" onPress={() => navigate('requests', { status: 'assigned' })} />
         <Tile label="In progress" dot={colors.warning} value={byStatus('in_progress')} sub="Vendor on the job" onPress={() => navigate('requests', { status: 'in_progress' })} />
         <Tile label="Resolved" dot={colors.success} value={byStatus('resolved')} sub="Awaiting tenant" onPress={() => navigate('requests', { status: 'resolved' })} />
+        <Tile label="Disputed" dot={colors.danger} value={byStatus('disputed')} sub="Tenant says not fixed" onPress={() => navigate('requests', { status: 'disputed' })} />
         <Tile label="Closed" dot={colors.faint} value={byStatus('closed')} sub={`Last ${range} days`} onPress={() => navigate('requests', { status: 'closed' })} />
         <Tile label="Avg resolution" value={`${avgRes.toFixed(1)}d`} sub="Target 3 days" />
       </Grid>
@@ -92,12 +92,12 @@ export function MaintenanceOverviewScreen() {
         <Card style={{ minHeight: 300 }}>
           <CardHeader title="Requests by status" />
           <Row gap={20} wrap>
-            <Donut size={150} stroke={20} segments={[{ value: byStatus('new'), color: colors.info }, { value: byStatus('assigned'), color: colors.purple }, { value: byStatus('in_progress'), color: colors.warning }, { value: byStatus('resolved'), color: colors.success }, { value: byStatus('closed'), color: colors.faint }]}>
+            <Donut size={150} stroke={20} segments={[{ value: byStatus('new'), color: colors.info }, { value: byStatus('assigned'), color: colors.purple }, { value: byStatus('in_progress'), color: colors.warning }, { value: byStatus('resolved'), color: colors.success }, { value: byStatus('disputed'), color: colors.danger }, { value: byStatus('closed'), color: colors.faint }]}>
               <T size={26} weight="bold">{recent.length}</T><T size={11} color={colors.subtext}>requests</T>
             </Donut>
             <View style={{ gap: 9, flex: 1, minWidth: 140 }}>
-              {(['new', 'assigned', 'in_progress', 'resolved', 'closed'] as RequestStatus[]).map((s) => (
-                <Row key={s} gap={8}><View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: { new: colors.info, assigned: colors.purple, in_progress: colors.warning, resolved: colors.success, closed: colors.faint }[s] }} /><T size={12.5} color={colors.textSoft} style={{ flex: 1 }}>{REQ_STATUS[s].label}</T><T size={12.5} weight="bold">{byStatus(s)}</T></Row>
+              {(['new', 'assigned', 'in_progress', 'resolved', 'disputed', 'closed'] as RequestStatus[]).map((s) => (
+                <Row key={s} gap={8}><View style={{ width: 9, height: 9, borderRadius: 2, backgroundColor: { new: colors.info, assigned: colors.purple, in_progress: colors.warning, resolved: colors.success, disputed: colors.danger, closed: colors.faint, cancelled: colors.faint }[s] }} /><T size={12.5} color={colors.textSoft} style={{ flex: 1 }}>{REQ_STATUS[s].label}</T><T size={12.5} weight="bold">{byStatus(s)}</T></Row>
               ))}
             </View>
           </Row>
@@ -116,12 +116,14 @@ export function MaintenanceOverviewScreen() {
 // ---------------------------------------------------------------- List
 
 export function RequestsScreen() {
+  const now = useNow();
   const { me } = useStore();
   const scope = useScope();
   const lookup = useLookup();
   const { navigate, route } = useRouter();
   const toast = useToast();
-  const [status, setStatus] = useState<string>(route.params.status ?? 'open');
+  const isCaretaker = me?.role === 'caretaker';
+  const [status, setStatus] = useState<string>(route.params.status ?? (isCaretaker ? 'mine' : 'open'));
   const [q, setQ] = useState('');
   const [loc, setLoc] = useState('all');
   const [prop, setProp] = useState(route.params.propertyId ?? 'all');
@@ -137,21 +139,22 @@ export function RequestsScreen() {
     if (prop !== 'all' && r.propertyId !== prop) return false;
     if (cats.length && !cats.includes(r.category)) return false;
     if (prio !== 'all' && r.priority !== prio) return false;
-    if (date !== 'any' && Date.now() - parseDate(r.createdAt).getTime() > parseInt(date, 10) * 86400000) return false;
+    if (date !== 'any' && now - parseDate(r.createdAt).getTime() > parseInt(date, 10) * 86400000) return false;
     return true;
   });
-  const count = (s: string) => (s === 'all' ? base.length : s === 'open' ? base.filter((r) => ['new', 'assigned', 'in_progress'].includes(r.status)).length : base.filter((r) => r.status === s).length);
-  const rows = base.filter((r) => status === 'all' || (status === 'open' ? ['new', 'assigned', 'in_progress'].includes(r.status) : r.status === status));
+  const matches = (r: MaintenanceRequest, s: string) => s === 'all' || (s === 'open' ? isOpen(r) : s === 'mine' ? r.caretakerId === me?.id && isOpen(r) : r.status === s);
+  const count = (s: string) => base.filter((r) => matches(r, s)).length;
+  const rows = base.filter((r) => matches(r, status));
   const pg = usePaged(rows, 12, `${status}${q}${loc}${prop}${cats.join()}${prio}${date}`);
 
   const exportCsv = () => {
-    const ok = downloadCSV('maintenance-requests', rows.map((r) => ({ 'Request ID': r.id, Tenant: lookup.tenant(r.tenantId)?.name, Property: lookup.property(r.propertyId)?.name, Flat: lookup.unit(r.unitId)?.code, Category: r.category, Description: r.title, Priority: PRIORITY[r.priority].label, Date: fmtDate(r.createdAt), Vendor: lookup.vendor(r.vendorId)?.name ?? '', Status: REQ_STATUS[r.status].label })));
+    const ok = downloadCSV('maintenance-requests', rows.map((r) => ({ 'Request ID': r.id, Tenant: lookup.tenant(r.tenantId)?.name, Property: lookup.property(r.propertyId)?.name, Flat: lookup.unit(r.unitId)?.code, Category: r.category, Description: r.title, Priority: PRIORITY[r.priority].label, Date: fmtDate(r.createdAt), Vendor: lookup.vendor(r.vendorId)?.name ?? '', Caretaker: lookup.user(r.caretakerId)?.name ?? '', Status: REQ_STATUS[r.status].label })));
     toast(ok ? `${rows.length} requests exported` : 'Export is available on the web app', ok ? 'success' : 'info');
   };
 
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance', to: 'maintenance' }, { label: 'Requests' }]} title="Maintenance requests"
+      <PageHeader crumbs={isCaretaker ? [{ label: 'My jobs', to: 'jobs' }, { label: 'Requests' }] : [{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance', to: 'maintenance' }, { label: 'Requests' }]} title="Maintenance requests" badge={<LiveTag />}
         actions={<>
           <Segmented value="all" onChange={(v) => v === 'overview' && navigate('maintenance')} options={[{ value: 'overview', label: 'Overview' }, { value: 'all', label: 'All requests' }]} />
           <Button title="Export" icon={Download} variant="secondary" onPress={exportCsv} />
@@ -160,9 +163,11 @@ export function RequestsScreen() {
       <Card pad={0}>
         <View style={{ paddingHorizontal: 16 }}>
           <Tabs value={status} onChange={setStatus} style={{ borderBottomWidth: 0 }} tabs={[
+            ...(isCaretaker ? [{ value: 'mine', label: 'My jobs', count: count('mine') }] : []),
             { value: 'all', label: 'All', count: count('all') }, { value: 'open', label: 'Open', count: count('open') }, { value: 'new', label: 'New', count: count('new') },
             { value: 'assigned', label: 'Assigned', count: count('assigned') }, { value: 'in_progress', label: 'In progress', count: count('in_progress') },
-            { value: 'resolved', label: 'Resolved', count: count('resolved') }, { value: 'closed', label: 'Closed', count: count('closed') },
+            { value: 'resolved', label: 'Resolved', count: count('resolved') }, { value: 'disputed', label: 'Disputed', count: count('disputed') },
+            { value: 'closed', label: 'Closed', count: count('closed') }, { value: 'cancelled', label: 'Cancelled', count: count('cancelled') },
           ]} />
         </View>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, padding: 14, borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -183,7 +188,9 @@ export function RequestsScreen() {
             { key: 'd', title: 'Description', flex: 1.6, min: 170, render: (r) => <T size={13} color={colors.textSoft} numberOfLines={1}>{r.title}</T> },
             { key: 'pr', title: 'Priority', min: 95, render: (r) => <PriorityBadge p={r.priority} /> },
             { key: 'dt', title: 'Date', min: 70, flex: 0.6, render: (r) => <T size={13} color={colors.textSoft}>{fmtShort(r.createdAt)}</T> },
-            { key: 'v', title: 'Vendor', flex: 1.2, min: 130, render: (r) => r.vendorId ? <T size={13} color={colors.textSoft} numberOfLines={1}>{lookup.vendor(r.vendorId)?.name}</T> : <Button title="Assign" size="sm" variant="soft" onPress={() => navigate('request', { id: r.id, assign: '1' })} /> },
+            { key: 'v', title: 'Assigned to', flex: 1.2, min: 130, render: (r) => r.vendorId || r.caretakerId
+              ? <T size={13} color={colors.textSoft} numberOfLines={1}>{[lookup.vendor(r.vendorId)?.name, lookup.user(r.caretakerId)?.name].filter(Boolean).join(' · ')}</T>
+              : canAssign(r, me) ? <Button title="Assign" size="sm" variant="soft" onPress={() => navigate('request', { id: r.id, assign: '1' })} /> : <T size={13} color={colors.subtext}>—</T> },
             { key: 's', title: 'Status', min: 110, render: (r) => <RequestStatusBadge s={r.status} /> },
           ]} />
         <Pagination page={pg.page} pages={pg.pages} onPage={pg.setPage} label={`Showing ${pg.from}–${pg.to} of ${rows.length} requests`} />
@@ -209,15 +216,23 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [urgency, setUrgency] = useState<'low' | 'medium' | 'urgent'>('medium');
-  useEffect(() => { if (open) { setTenantId(''); setTitle(''); setDesc(''); setUrgency('medium'); } }, [open]);
+  const [photos, setPhotos] = useState<PickedFile[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [clientKey, setClientKey] = useState(newClientKey);
+  const [previousOpen, setPreviousOpen] = useState(false);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open) { setTenantId(''); setTitle(''); setDesc(''); setUrgency('medium'); setPhotos([]); setBusy(false); }
+  }
   const tenants = scope.tenants.filter((t) => t.status === 'active');
   return (
     <Dialog open={open} onClose={onClose} title="New maintenance request" subtitle="Log an issue on behalf of a tenant."
-      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Create request" disabled={!tenantId || !title.trim()} onPress={async () => {
+      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title={busy ? (photos.length ? 'Uploading…' : 'Creating…') : 'Create request'} loading={busy} disabled={!tenantId || !title.trim() || busy} onPress={async () => {
+        setBusy(true);
         try {
-          const id = await createRequest({ tenantId, category, title: title.trim(), description: desc.trim() || title.trim(), where: 'Flat', urgency, photos: 0, caretakerAccess: false, access: 'Contact tenant to arrange' });
-          toast(`${id} created`); onClose(); navigate('request', { id });
-        } catch (e) { toast(`Couldn’t create the request: ${e instanceof Error ? e.message : e}`, 'danger'); }
+          const id = await createRequest({ tenantId, category, title: title.trim(), description: desc.trim() || title.trim(), where: 'Flat', urgency, photos, caretakerAccess: false, access: 'Contact tenant to arrange', clientKey });
+          setClientKey(newClientKey()); toast(`${id} created`); onClose(); navigate('request', { id });
+        } catch (e) { setBusy(false); toast(`Couldn’t create the request: ${e instanceof Error ? e.message : e}`, 'danger'); }
       }} /></>}>
       <View style={{ gap: 14 }}>
         <Select label="Tenant" required value={tenantId} onChange={setTenantId} options={tenants.map((t) => ({ value: t.id, label: t.name, sub: `${lookup.property(t.propertyId)?.short} · ${lookup.unit(t.unitId)?.code}` }))} />
@@ -225,6 +240,10 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
         <Input label="Short title" required value={title} onChangeText={setTitle} placeholder="e.g. Kitchen socket not working" />
         <Input label="Description" value={desc} onChangeText={setDesc} multiline />
         <Segmented value={urgency} onChange={setUrgency} options={[{ value: 'low', label: 'Can wait' }, { value: 'medium', label: 'Soon' }, { value: 'urgent', label: 'Emergency' }]} />
+        <View style={{ gap: 8 }}>
+          <T size={12.5} weight="semibold" color={colors.textSoft}>Photos <T size={12.5} color={colors.subtext}>(optional, up to 5)</T></T>
+          <PhotoPicker photos={photos} onChange={setPhotos} />
+        </View>
       </View>
     </Dialog>
   );
@@ -232,12 +251,16 @@ function NewRequestDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
 // ---------------------------------------------------------------- Detail
 
-const STAGES: Array<{ key: RequestStatus | 'confirm'; label: string }> = [
-  { key: 'new', label: 'Reported' }, { key: 'assigned', label: 'Assign vendor' }, { key: 'in_progress', label: 'In progress' }, { key: 'resolved', label: 'Resolved' }, { key: 'confirm', label: 'Tenant confirms' }, { key: 'closed', label: 'Closed' },
+const STAGES: { key: RequestStatus | 'confirm'; label: string }[] = [
+  { key: 'new', label: 'Reported' }, { key: 'assigned', label: 'Assigned' }, { key: 'in_progress', label: 'In progress' }, { key: 'resolved', label: 'Resolved' }, { key: 'confirm', label: 'Tenant confirms' }, { key: 'closed', label: 'Closed' },
 ];
+const STAGE_INDEX: Record<RequestStatus, number> = { new: 0, assigned: 1, in_progress: 2, resolved: 4, disputed: 4, closed: 5, cancelled: 0 };
 
 export function RequestDetailScreen({ id }: { id: string }) {
-  const { state, me, setRequestStatus, setRequestPriority, addComment } = useStore();
+  const messageTenant = useMessageTenant();
+  const now = useNow();
+  const { state, me, setRequestPriority, addComment } = useStore();
+  const [action, setAction] = useState<Transition | null>(null);
   const lookup = useLookup();
   const { navigate, route } = useRouter();
   const toast = useToast();
@@ -252,33 +275,33 @@ export function RequestDetailScreen({ id }: { id: string }) {
   const p = lookup.property(r.propertyId)!;
   const v = lookup.vendor(r.vendorId);
   const block = lookup.block(u?.blockId);
+  const ct = lookup.user(r.caretakerId);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager' || me?.role === 'caretaker';
-  const stageIdx = r.status === 'new' ? 0 : r.status === 'assigned' ? 1 : r.status === 'in_progress' ? 2 : r.status === 'resolved' ? 4 : 5;
+  const actions = allowedTransitions(r, me);
+  const assignable = canAssign(r, me);
+  const stageIdx = STAGE_INDEX[r.status];
   const slaHours = state.settings.response[r.priority];
   const slaDue = new Date(parseDate(r.createdAt).getTime() + slaHours * 3600000);
-  const slaLeft = (slaDue.getTime() - Date.now()) / 3600000;
+  const slaLeft = (slaDue.getTime() - now) / 3600000;
   const history = state.requests.filter((x) => x.unitId === r.unitId && x.id !== r.id).slice(0, 3);
   const openVendors = state.vendors.filter((x) => x.trade === r.category && x.status === 'active').length;
-  const photoTints = [colors.infoSoft, colors.primarySoft, colors.accentSoft];
-
-  const statusOptions: Array<{ value: RequestStatus; label: string }> = (['new', 'assigned', 'in_progress', 'resolved', 'closed'] as RequestStatus[]).map((s) => ({ value: s, label: `Status: ${REQ_STATUS[s].label}` }));
 
   const eventIcon = (k: string) => (k === 'created' || k === 'status' ? CircleCheck : k === 'priority' ? TriangleAlert : k === 'vendor' ? Briefcase : k === 'waiting' ? Hourglass : MessageSquare);
 
   return (
     <Page>
-      <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance', to: 'maintenance' }, { label: 'Requests', to: 'requests' }, { label: r.id }]} title={r.title}
+      <PageHeader crumbs={me?.role === 'caretaker' ? [{ label: 'My jobs', to: 'jobs' }, { label: r.id }] : [{ label: 'Dashboard', to: 'dashboard' }, { label: 'Maintenance', to: 'maintenance' }, { label: 'Requests', to: 'requests' }, { label: r.id }]} title={r.title}
         badge={<Row gap={6}><PriorityBadge p={r.priority} /><RequestStatusBadge s={r.status} /></Row>}
         subtitle={`${r.id} · Reported ${fmtDate(r.createdAt)}, ${new Date(r.createdAt).toTimeString().slice(0, 5)} by ${r.events[0]?.by.startsWith('Tenant') ? 'tenant' : 'staff'} · ${r.category}`}
         actions={canEdit ? <>
-          <Button title="Message tenant" icon={MessageSquare} variant="secondary" size="sm" onPress={() => navigate('communications', { tenantId: t.id })} />
-          <Select compact value={r.status} onChange={(s) => { setRequestStatus(r.id, s); toast(`Status changed to ${REQ_STATUS[s].label}`); }} options={statusOptions} style={{ minWidth: 170 }} />
-          <Button title={v ? 'Change vendor' : 'Assign vendor'} icon={Briefcase} size="sm" onPress={() => setAssignOpen(true)} />
+          <Button title="Message tenant" icon={MessageSquare} variant="secondary" size="sm" onPress={() => messageTenant(t.id)} />
+          {assignable ? <Button title={v || ct ? 'Reassign' : 'Assign'} icon={Briefcase} size="sm" variant={actions.length ? 'secondary' : 'primary'} onPress={() => setAssignOpen(true)} /> : null}
+          {actions.map((a) => <Button key={a} title={TRANSITION_LABEL[a]} size="sm" variant={a === 'cancel' || a === 'close' ? 'secondary' : 'primary'} onPress={() => setAction(a)} />)}
         </> : undefined} />
       <Card pad={14} style={{ marginBottom: 14 }}>
         <Row gap={6} wrap={bp === 'mobile'}>
           {STAGES.map((s, i) => {
-            const done = i < stageIdx || r.status === 'closed', cur = i === stageIdx && r.status !== 'closed';
+            const done = i < stageIdx || r.status === 'closed', cur = i === stageIdx && r.status !== 'closed' && r.status !== 'cancelled';
             return (
               <React.Fragment key={s.key}>
                 <Row gap={7}>
@@ -291,6 +314,15 @@ export function RequestDetailScreen({ id }: { id: string }) {
           })}
         </Row>
       </Card>
+      {r.status === 'disputed' ? (
+        <Notice tone="danger" title="The tenant says this isn’t fixed" style={{ marginBottom: 16 }}
+          action={actions.includes('reopen') ? <Button title={TRANSITION_LABEL.reopen} size="sm" onPress={() => setAction('reopen')} /> : undefined}>
+          {r.disputeReason ?? 'No reason given.'}
+        </Notice>
+      ) : null}
+      {r.status === 'cancelled' ? <Notice tone="neutral" style={{ marginBottom: 16 }}>{r.events.slice().reverse().find((e) => e.kind === 'status')?.text ?? 'This request was cancelled.'}</Notice> : null}
+      {r.status === 'resolved' ? <Notice tone="success" style={{ marginBottom: 16 }}>Marked as fixed. Waiting for {t.name.split(' ')[0]} to confirm or dispute. Requests aren’t closed automatically.</Notice> : null}
+      {me?.role === 'caretaker' && r.caretakerId && r.caretakerId !== me.id ? <Notice tone="info" style={{ marginBottom: 16 }}>{`This job is assigned to ${ct?.name ?? 'another caretaker'}.`}</Notice> : null}
       {(r.priority === 'high' || r.priority === 'urgent') && (r.status === 'new') ? (
         <Notice tone="warning" style={{ marginBottom: 16 }}>
           <T size={13} color={colors.text}><T size={13} weight="semibold">{PRIORITY[r.priority].label} priority, first response {slaLeft > 0 ? `due in ${Math.floor(slaLeft)}h ${Math.round((slaLeft % 1) * 60)}m` : 'overdue'}.</T> Assign a vendor before {slaDue.toTimeString().slice(0, 5)} to stay within the {slaHours}-hour SLA.</T>
@@ -304,14 +336,10 @@ export function RequestDetailScreen({ id }: { id: string }) {
               <KV label="Property" value={p.name} /><KV label="Block / flat" value={`${block?.name}, Flat ${u.code}`} /><KV label="Location" value={`${lookup.location(p.locationId)?.name}, ${lookup.location(p.locationId)?.city}`} />
               <KV label="Category" value={r.category} /><KV label="Where in the flat" value={r.where} /><KV label="Access" value={r.access} />
             </Grid>
-            <T size={12} color={colors.subtext} style={{ marginTop: 16 }}>Tenant's description</T>
+            <T size={12} color={colors.subtext} style={{ marginTop: 16 }}>Tenant&apos;s description</T>
             <T size={13.5} color={colors.textSoft} style={{ marginTop: 4, lineHeight: 21 }}>{r.description}</T>
-            {r.photos ? (
-              <>
-                <T size={12} color={colors.subtext} style={{ marginTop: 16, marginBottom: 8 }}>Photos from tenant ({r.photos})</T>
-                <Row gap={10} wrap>{Array.from({ length: r.photos }).map((_, i) => <View key={i} style={{ width: 120, height: 86, borderRadius: radius.md, backgroundColor: photoTints[i % 3], alignItems: 'center', justifyContent: 'center' }}><ImageIcon size={20} color={colors.subtext} /></View>)}</Row>
-              </>
-            ) : null}
+            <RequestPhotos requestId={r.id} title="Photos from the report" />
+            <RequestPhotos requestId={r.id} title="Completion photos" completion version={r.status === 'resolved' || r.status === 'closed' ? 1 : 0} />
           </Card>
           <Card>
             <CardHeader title="Activity and comments" right={<T size={11.5} color={colors.subtext}>Visible to managers. Toggle to share with tenant.</T>} />
@@ -356,12 +384,19 @@ export function RequestDetailScreen({ id }: { id: string }) {
         <View style={{ gap: 16 }}>
           <Card>
             <CardHeader title="Tenant" right={<Link onPress={() => navigate('tenant', { id: t.id })}>View profile</Link>} />
-            <Row gap={10}><Avatar name={t.name} size={38} /><View><T size={13.5} weight="semibold">{t.name}</T><T size={12} color={colors.subtext}>Flat {u.code} · Lease to {fmtDate(lookup.currentLease(t.id)?.end)}</T></View></Row>
+            <Row gap={10}><Avatar name={t.name} size={38} /><View style={{ flex: 1 }}><T size={13.5} weight="semibold">{t.name}</T><T size={12} color={colors.subtext}>Flat {u.code} · Lease to {fmtDate(lookup.currentLease(t.id)?.end)}</T></View><CallButton phone={t.phone} name={t.name} compact /></Row>
             <View style={{ gap: 6, marginTop: 12 }}>
               <Row gap={8}><Phone size={13} color={colors.subtext} /><T size={12.5}>{t.phone}</T></Row>
               <Row gap={8}><Mail size={13} color={colors.subtext} /><T size={12.5}>{t.email}</T></Row>
             </View>
           </Card>
+          {ct ? (
+            <Card>
+              <CardHeader title="Caretaker" />
+              <Row gap={10}><Avatar name={ct.name} size={36} /><View style={{ flex: 1 }}><T size={13.5} weight="semibold">{ct.name}</T><T size={12} color={colors.subtext}>{ct.phone || ct.email}</T></View></Row>
+              {r.visit && !v ? <Notice tone="info" icon={Clock} style={{ marginTop: 10 }}>{`Visit ${fmtDate(r.visit.date)}, ${r.visit.window}`}</Notice> : null}
+            </Card>
+          ) : null}
           <Card>
             <CardHeader title="Vendor" />
             {v ? (
@@ -369,14 +404,14 @@ export function RequestDetailScreen({ id }: { id: string }) {
                 <Row gap={10}><IconTile icon={Briefcase} tone="purple" size={36} /><View style={{ flex: 1 }}><T size={13.5} weight="semibold">{v.name}</T><T size={12} color={colors.subtext}>{v.contact} · {v.phone}</T></View></Row>
                 {r.visit ? <Notice tone="info" icon={Clock}>{`Visit ${fmtDate(r.visit.date)}, ${r.visit.window}`}</Notice> : null}
                 <Row gap={6}><Star size={13} color={colors.accent} fill={colors.accent} /><T size={12.5} color={colors.textSoft}>{v.rating.toFixed(1)} · {v.completed} jobs · avg {v.avgDays}d</T></Row>
-                {canEdit ? <Button title="Change vendor" variant="secondary" size="sm" onPress={() => setAssignOpen(true)} /> : null}
+                {assignable ? <Button title="Change vendor" variant="secondary" size="sm" onPress={() => setAssignOpen(true)} /> : null}
               </View>
             ) : (
               <View style={{ alignItems: 'center', gap: 6, paddingVertical: 8 }}>
                 <IconTile icon={Briefcase} tone="neutral" size={36} />
                 <T size={13} weight="semibold">No vendor assigned</T>
                 <T size={12} color={colors.subtext}>{openVendors} {r.category.toLowerCase()} vendors available today</T>
-                {canEdit ? <Button title="Assign vendor" variant="soft" style={{ alignSelf: 'stretch', marginTop: 6 }} onPress={() => setAssignOpen(true)} /> : null}
+                {assignable ? <Button title="Assign vendor" variant="soft" style={{ alignSelf: 'stretch', marginTop: 6 }} onPress={() => setAssignOpen(true)} /> : null}
               </View>
             )}
           </Card>
@@ -403,18 +438,22 @@ export function RequestDetailScreen({ id }: { id: string }) {
           </Card>
         </View>
       </Grid>
-      <AssignVendorDialog open={assignOpen} onClose={() => setAssignOpen(false)} request={r} />
+      {assignable ? <AssignVendorDialog open={assignOpen} onClose={() => setAssignOpen(false)} request={r} /> : null}
+      <TransitionDialog request={r} transition={action} onClose={() => setAction(null)} requirePhotos={me?.role === 'caretaker'} />
     </Page>
   );
 }
 
 function AssignVendorDialog({ open, onClose, request }: { open: boolean; onClose: () => void; request: MaintenanceRequest }) {
-  const { state, assignVendor } = useStore();
+  const { state, assignRequest } = useStore();
   const lookup = useLookup();
   const toast = useToast();
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<'trade' | 'today' | 'area'>('trade');
   const [vendorId, setVendorId] = useState(request.vendorId ?? '');
+  const [caretakerId, setCaretakerId] = useState(request.caretakerId ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
   const [date, setDate] = useState(toISODate(new Date()));
   const [win, setWin] = useState('2pm – 5pm');
   const [note, setNote] = useState('');
@@ -423,23 +462,46 @@ function AssignVendorDialog({ open, onClose, request }: { open: boolean; onClose
   const p = lookup.property(request.propertyId);
   const u = lookup.unit(request.unitId);
   const area = lookup.location(p?.locationId)?.name ?? '';
-  useEffect(() => {
+  const [previous, setPrevious] = useState({ open: false, request });
+  if (previous.open !== open || previous.request !== request) {
+    setPrevious({ open, request });
     if (open) {
       setVendorId(request.vendorId ?? '');
+      setCaretakerId(request.caretakerId ?? '');
+      setBusy(false);
+      setError(undefined);
       setNote(request.description.length > 120 ? `${request.title}. ${request.access}.` : `${request.description} ${request.access}.`);
     }
-  }, [open, request]);
+  }
   const vendors = state.vendors
     .filter((v) => v.status === 'active' && (!q || v.name.toLowerCase().includes(q.toLowerCase())))
     .filter((v) => (filter === 'trade' ? v.trade === request.category || (request.category === 'Water supply' && v.trade === 'Plumbing') : filter === 'area' ? v.coverage.includes(area) || v.coverage.startsWith('All') : true))
     .sort((a, b) => b.rating - a.rating);
-  const openJobs = (v: Vendor) => state.requests.filter((r) => r.vendorId === v.id && ['assigned', 'in_progress'].includes(r.status)).length;
+  const openJobs = (v: Vendor) => state.requests.filter((r) => r.vendorId === v.id && isOpen(r) && r.status !== 'new').length;
   const sel = state.vendors.find((v) => v.id === vendorId);
+  const caretakers = state.users.filter((u) => u.role === 'caretaker' && u.status === 'active' && u.propertyIds?.includes(request.propertyId));
+  const selCt = caretakers.find((u) => u.id === caretakerId);
+  const who = [sel?.name, selCt?.name].filter(Boolean).join(' and ');
+  const submit = async () => {
+    setBusy(true); setError(undefined);
+    try {
+      await assignRequest(request.id, { vendorId: sel?.id, caretakerId: selCt?.id, visit: { date, window: win }, note, tellTenant });
+      toast(`${who} assigned${tellTenant ? ' — tenant notified' : ''}`);
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
   const dayOpts = [0, 1, 2, 3].map((i) => { const d = addDays(new Date(), i); return { value: toISODate(d), label: i === 0 ? `Today, ${fmtShort(toISODate(d))}` : i === 1 ? `Tomorrow, ${fmtShort(toISODate(d))}` : fmtDate(toISODate(d)) }; });
   return (
-    <Dialog open={open} onClose={onClose} title="Assign a vendor" subtitle={`${request.id} · ${request.category} · ${p?.short} ${u?.code}`} width={560}
-      footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title={sel ? `Assign ${sel.name}` : 'Choose a vendor'} disabled={!sel} onPress={() => { assignVendor(request.id, vendorId, { date, window: win }, note, smsVendor, tellTenant); toast(`${sel!.name} assigned${tellTenant ? ' — tenant notified' : ''}`); onClose(); }} /></>}>
+    <Dialog open={open} onClose={busy ? () => {} : onClose} title="Assign" subtitle={`${request.id} · ${request.category} · ${p?.short} ${u?.code}`} width={560}
+      footer={<><Button title="Cancel" variant="secondary" disabled={busy} onPress={onClose} /><Button title={busy ? 'Assigning…' : who ? `Assign ${who}` : 'Choose a vendor or caretaker'} loading={busy} disabled={!who || busy} onPress={() => void submit()} /></>}>
       <View style={{ gap: 12 }}>
+        <Select label="Caretaker" value={caretakerId || 'none'} onChange={(v) => setCaretakerId(v === 'none' ? '' : v)}
+          options={[{ value: 'none', label: caretakers.length ? 'No caretaker' : 'No caretakers for this property' }, ...caretakers.map((c) => ({ value: c.id, label: c.name }))]}
+          hint="Caretakers see the job under My jobs and can start and finish it." />
+        <T size={12.5} weight="semibold" color={colors.textSoft}>Vendor</T>
         <Input leftIcon={Search} value={q} onChangeText={setQ} placeholder="Search vendors" />
         <Row gap={8} wrap>
           <Chip label={request.category} active={filter === 'trade'} onPress={() => setFilter('trade')} />
@@ -451,7 +513,7 @@ function AssignVendorDialog({ open, onClose, request }: { open: boolean; onClose
             const jobs = openJobs(v);
             const on = v.id === vendorId;
             return (
-              <Touch key={v.id} onPress={() => setVendorId(v.id)} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', borderWidth: on ? 1.5 : 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primaryTint : colors.card, borderRadius: radius.md, padding: 12 }}>
+              <Touch key={v.id} onPress={() => setVendorId(on ? '' : v.id)} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start', borderWidth: on ? 1.5 : 1, borderColor: on ? colors.primary : colors.border, backgroundColor: on ? colors.primaryTint : colors.card, borderRadius: radius.md, padding: 12 }}>
                 <View style={{ width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: on ? colors.primary : colors.borderStrong, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>{on ? <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary }} /> : null}</View>
                 <View style={{ flex: 1 }}>
                   <T size={13} weight="semibold">{v.name}</T>
@@ -471,6 +533,7 @@ function AssignVendorDialog({ open, onClose, request }: { open: boolean; onClose
         <Input label="Note to vendor" value={note} onChangeText={setNote} multiline />
         <Checkbox checked={smsVendor} onChange={setSmsVendor} label="Send job details to vendor by SMS and email" />
         <Checkbox checked={tellTenant} onChange={setTellTenant} label="Tell the tenant who is coming and when" />
+        {error ? <Notice tone="danger">{error}</Notice> : null}
       </View>
     </Dialog>
   );
@@ -479,6 +542,7 @@ function AssignVendorDialog({ open, onClose, request }: { open: boolean; onClose
 // ---------------------------------------------------------------- Vendors
 
 export function VendorsScreen() {
+  const now = useNow();
   const { state, me, addVendor, setVendorStatus } = useStore();
   const { navigate } = useRouter();
   const toast = useToast();
@@ -511,7 +575,7 @@ export function VendorsScreen() {
           { icon: Briefcase, tone: 'primary' as const, l: 'Active vendors', v: active.length, s: `Across ${trades.size} trades` },
           { icon: Clock, tone: 'accent' as const, l: 'Open jobs', v: totalOpen, s: `${pastSla} past SLA` },
           { icon: Star, tone: 'info' as const, l: 'Average rating', v: avgRating.toFixed(1), s: `From ${active.reduce((s, v) => s + v.ratingCount, 0)} tenant ratings` },
-          { icon: Zap, tone: 'accent' as const, l: 'Spend this month', v: nairaCompact(spend), s: `${state.requests.filter((r) => r.cost && Date.now() - parseDate(r.createdAt).getTime() < 30 * 86400000).length} completed jobs` },
+          { icon: Zap, tone: 'accent' as const, l: 'Spend this month', v: nairaCompact(spend), s: `${state.requests.filter((r) => r.cost && now - parseDate(r.createdAt).getTime() < 30 * 86400000).length} completed jobs` },
         ].map((x) => (
           <Card key={x.l} pad={16}>
             <Row gap={8}><IconTile icon={x.icon} tone={x.tone} size={26} iconSize={13} /><T size={12} color={colors.textSoft}>{x.l}</T></Row>
@@ -553,7 +617,11 @@ export function VendorsScreen() {
 
 function AddVendorDialog({ open, onClose, onAdd }: { open: boolean; onClose: () => void; onAdd: (v: Omit<Vendor, 'id' | 'completed' | 'avgDays' | 'rating' | 'ratingCount' | 'spendThisMonth'>) => void }) {
   const [f, setF] = useState({ name: '', contact: '', phone: '', email: '', trade: 'Plumbing' as Category, coverage: '' });
-  useEffect(() => { if (open) setF({ name: '', contact: '', phone: '', email: '', trade: 'Plumbing', coverage: '' }); }, [open]);
+  const [previousOpen, setPreviousOpen] = useState(false);
+  if (previousOpen !== open) {
+    setPreviousOpen(open);
+    if (open) setF({ name: '', contact: '', phone: '', email: '', trade: 'Plumbing', coverage: '' });
+  }
   const ok = f.name.trim() && f.contact.trim() && f.phone.trim();
   return (
     <Dialog open={open} onClose={onClose} title="Add vendor" footer={<><Button title="Cancel" variant="secondary" onPress={onClose} /><Button title="Add vendor" disabled={!ok} onPress={() => onAdd({ ...f, coverage: f.coverage || 'All Lagos', status: 'active' })} /></>}>
@@ -569,3 +637,11 @@ function AddVendorDialog({ open, onClose, onAdd }: { open: boolean; onClose: () 
 }
 
 export { ChevronRight, Send, X, useMemo };
+
+const Tile = ({ label, value, sub, dot, dark, onPress }: { label: string; value: string | number; sub: string; dot?: string; dark?: boolean; onPress?: () => void }) => (
+  <Card pad={14} onPress={onPress} tint={dark ? colors.sidebar : undefined} style={dark ? { borderColor: colors.sidebar } : undefined}>
+    <Row gap={6}>{dot ? <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: dot }} /> : null}<T size={12} color={dark ? colors.sidebarText : colors.subtext}>{label}</T></Row>
+    <T size={24} weight="bold" color={dark ? colors.white : colors.text} style={{ marginTop: 6 }}>{value}</T>
+    <T size={11.5} color={dark ? colors.sidebarMuted : colors.subtext}>{sub}</T>
+  </Card>
+);

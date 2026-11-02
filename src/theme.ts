@@ -102,7 +102,7 @@ export function useResponsive<T>(v: { mobile: T; tablet?: T; desktop?: T }): T {
 }
 
 // Soft tones for initials avatars (bg, fg)
-export const AVATAR_TONES: Array<[string, string]> = [
+export const AVATAR_TONES: [string, string][] = [
   ['#FBEEDB', '#9A6414'],
   ['#E3EEE8', '#1F5C4A'],
   ['#E6EEFC', '#3A6FD8'],
