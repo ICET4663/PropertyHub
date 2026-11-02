@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { View } from 'react-native';
+import { Image } from 'expo-image';
 import {
   Building2, Download, Ellipsis, Grid2x2, List, MapPin, Pencil, Plus, Search, Users, Wrench, Eye, Check, Upload, X, CircleCheck, Minus,
 } from 'lucide-react-native';
@@ -12,7 +13,8 @@ import {
   Segmented, Select, T, Tabs, Touch, useToast, IconTile, Notice,
 } from '../../components/ui';
 import { DataTable, DaysBadge, FileRow, PriorityBadge, RequestStatusBadge, UnitBadge } from '../../components/data';
-import { BuildingArt } from '../../components/art';
+import { BuildingArt, PropertyPhoto, PropertyThumb } from '../../components/art';
+import { propertyPhotos } from '../../data/propertyPhotos';
 import { Donut, LineChart } from '../../components/charts';
 import { usePropertyStats, PropertyStats } from '../../lib/stats';
 import { downloadCSV } from '../../lib/export';
@@ -98,7 +100,7 @@ export function PropertiesScreen() {
             columns={[
               { key: 'p', title: 'Property', flex: 2, min: 220, render: (s) => (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <View style={{ width: 30, height: 30, borderRadius: 7, backgroundColor: s.property.art.bg, alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden' }}><View style={{ width: 14, height: 20, backgroundColor: s.property.art.a }} /></View>
+                  <PropertyThumb property={s.property} />
                   <View><T size={13} weight="semibold">{s.property.name}</T><T size={11.5} color={colors.subtext}>{s.property.type}</T></View>
                 </View>) },
               { key: 'l', title: 'Location', min: 120, render: (s) => <T size={13} color={colors.textSoft}>{lookup.location(s.property.locationId)?.name}</T> },
@@ -140,7 +142,7 @@ function PropertyCard({ s, canEdit }: { s: PropertyStats; canEdit: boolean }) {
   return (
     <Card pad={0} style={{ overflow: 'hidden' }}>
       <Touch onPress={() => navigate('property', { id: p.id })}>
-        <BuildingArt bg={p.art.bg} a={p.art.a} b={p.art.b} height={120} />
+        <PropertyPhoto property={p} height={150} />
         <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', gap: 6 }}>
           <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3 }}><T size={11} weight="semibold" color={colors.textSoft}>{p.type}</T></View>
           {highMaint ? <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentDeep }} /><T size={11} weight="semibold" color={colors.accentDeep}>High maintenance</T></View> : null}
@@ -198,6 +200,8 @@ export function PropertyDetailScreen({ id }: { id: string }) {
   const stats = usePropertyStats().find((s) => s.property.id === id);
   const [tab, setTab] = useState('overview');
   const [editing, setEditing] = useState(route.params.edit === '1');
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const { bp } = useBreakpoint();
   const p = stats?.property;
   const [form, setForm] = useState({ name: p?.name ?? '', description: p?.description ?? '', managerId: p?.managerId ?? '', type: p?.type ?? 'Apartment complex' as PropertyType });
   if (!stats || !p) return <Page><Card><EmptyState icon={Building2} title="Property not found" action={<Button title="Back to properties" onPress={() => navigate('properties')} />} /></Card></Page>;
@@ -247,7 +251,19 @@ export function PropertyDetailScreen({ id }: { id: string }) {
       <PageHeader crumbs={[{ label: 'Properties', to: 'properties' }, { label: loc?.name ?? '', to: 'locations' }, { label: p.name }]} title="" />
       <Card pad={0} style={{ marginBottom: 16, overflow: 'hidden' }}>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-          <View style={{ width: 200, minHeight: 150, flexGrow: 1, maxWidth: 260 }}><BuildingArt bg={p.art.bg} a={p.art.a} b={p.art.b} height={170} /></View>
+          <View style={{ width: 240, minHeight: 150, flexGrow: 1, maxWidth: bp === 'mobile' ? undefined : 340 }}>
+            <PropertyPhoto property={p} height={200} index={photoIndex} />
+            {propertyPhotos(p.id).length > 1 ? (
+              <Row gap={6} style={{ position: 'absolute', left: 10, bottom: 10 }}>
+                {propertyPhotos(p.id).map((src, i) => (
+                  <Touch key={i} onPress={() => setPhotoIndex(i)} accessibilityLabel={`Show photo ${i + 1}`}
+                    style={{ borderRadius: 6, borderWidth: 2, borderColor: i === photoIndex ? colors.white : 'transparent', overflow: 'hidden' }}>
+                    <Image source={src} style={{ width: 40, height: 30 }} contentFit="cover" alt="" />
+                  </Touch>
+                ))}
+              </Row>
+            ) : null}
+          </View>
           <View style={{ flex: 1, minWidth: 280, padding: 20, gap: 12 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <View style={{ flexShrink: 1 }}>

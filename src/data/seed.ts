@@ -40,10 +40,12 @@ export function buildSeed(): AppState {
   const users: User[] = [
     { id: 'u-femi', name: 'Femi Adewale', email: 'femi@adewaleproperties.ng', phone: '+234 803 100 2201', role: 'super_admin', access: 'All locations', twoStep: true, lastActive: at(0, 8, 40), status: 'active' },
     { id: 'u-grace', name: 'Grace Uche', email: 'grace@adewaleproperties.ng', phone: '+234 809 330 1120', role: 'manager', access: 'Lekki Phase 1, Ikoyi', propertyIds: ['prop-palm', 'prop-bourdillon'], twoStep: true, lastActive: at(0, 8, 28), status: 'active' },
-    { id: 'u-tobi', name: 'Tobi Lawal', email: 'tobi@adewaleproperties.ng', phone: '+234 802 114 7780', role: 'manager', access: 'Yaba, Gbagada', propertyIds: ['prop-hm', 'prop-gbagada'], twoStep: true, lastActive: at(0, 7, 40), status: 'active' },
-    { id: 'u-musa', name: 'Musa Danjuma', email: 'musa@adewaleproperties.ng', phone: '+234 806 551 0932', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-1, 17, 2), status: 'active' },
+    { id: 'u-tobi', name: 'Tobi Lawal', email: 'tobi@adewaleproperties.ng', phone: '+234 802 114 7780', role: 'manager', access: 'Yaba, Gbagada, Ikeja GRA', propertyIds: ['prop-hm', 'prop-gbagada', 'prop-isaacjohn'], twoStep: true, lastActive: at(0, 7, 40), status: 'active' },
+    { id: 'u-musa', name: 'Musa Danjuma', email: 'musa@adewaleproperties.ng', phone: '+234 806 551 0932', role: 'manager', access: 'Wuse 2, Maitama', propertyIds: ['prop-aminu', 'prop-maitama'], twoStep: false, lastActive: at(-1, 17, 2), status: 'active' },
     { id: 'u-rukayat', name: 'Rukayat Adebayo', email: 'accounts@adewaleproperties.ng', phone: '+234 805 771 2240', role: 'accountant', access: 'All locations, read only', twoStep: false, lastActive: at(-1, 14, 22), status: 'active' },
     { id: 'u-john', name: 'John Eze', email: 'john.eze@adewaleproperties.ng', phone: '+234 806 441 2031', role: 'caretaker', access: 'Herbert Macaulay Flats', propertyIds: ['prop-hm'], twoStep: true, lastActive: at(-3, 10, 5), status: 'active' },
+    { id: 'u-kemi', name: 'Kemi Balogun', email: 'kemi@adewaleproperties.ng', phone: '+234 808 412 6650', role: 'manager', access: 'Victoria Island, Lekki (Chevron), Ajah', propertyIds: ['prop-adeola', 'prop-chevron', 'prop-addo'], twoStep: true, lastActive: at(0, 9, 12), status: 'active' },
+    { id: 'u-ebiere', name: 'Ebiere Tamuno', email: 'ebiere@adewaleproperties.ng', phone: '+234 803 667 2018', role: 'manager', access: 'Port Harcourt GRA', propertyIds: ['prop-phgra'], twoStep: false, lastActive: at(-1, 15, 45), status: 'active' },
     { id: 'u-bola', name: 'Bola Kuti', email: 'bola@adewaleproperties.ng', phone: '+234 807 223 4410', role: 'manager', access: 'Wuse 2', propertyIds: ['prop-aminu'], twoStep: false, lastActive: at(-2, 11, 10), status: 'invited' },
   ];
 
@@ -53,7 +55,13 @@ export function buildSeed(): AppState {
     { id: 'loc-ikoyi', name: 'Ikoyi', area: 'Bourdillon Road', city: 'Lagos', state: 'Lagos State', description: 'Prime Ikoyi address close to the Falomo roundabout and the Lekki link bridge.', managerId: 'u-grace' },
     { id: 'loc-yaba', name: 'Yaba', area: 'Herbert Macaulay Way', city: 'Lagos', state: 'Lagos State', description: 'Busy mainland district near the tech hub, universities and the rail line.', managerId: 'u-tobi' },
     { id: 'loc-gbagada', name: 'Gbagada', area: 'Gbagada Phase 2', city: 'Lagos', state: 'Lagos State', description: 'Quiet family estate district off the Third Mainland Bridge.', managerId: 'u-tobi' },
+    { id: 'loc-vi', name: 'Victoria Island', area: 'Adeola Odeku Street', city: 'Lagos', state: 'Lagos State', description: 'Business district on the island, close to banks, embassies and the Eko Atlantic waterfront.', managerId: 'u-kemi' },
+    { id: 'loc-chevron', name: 'Lekki (Chevron)', area: 'Chevron Drive', city: 'Lagos', state: 'Lagos State', description: 'Gated estates along Chevron Drive, between Lekki Phase 1 and Ajah, popular with young families.', managerId: 'u-kemi' },
+    { id: 'loc-ajah', name: 'Ajah', area: 'Addo Road', city: 'Lagos', state: 'Lagos State', description: 'Fast-growing district at the end of the Lekki-Epe Expressway with more affordable rents.', managerId: 'u-kemi' },
+    { id: 'loc-ikeja', name: 'Ikeja GRA', area: 'Isaac John Street', city: 'Lagos', state: 'Lagos State', description: 'Leafy, quiet area near the airport, Allen Avenue and the state secretariat.', managerId: 'u-tobi' },
     { id: 'loc-wuse', name: 'Wuse 2', area: 'Aminu Kano Crescent', city: 'Abuja', state: 'FCT', description: 'Central Abuja business and lifestyle district.', managerId: 'u-musa' },
+    { id: 'loc-maitama', name: 'Maitama', area: 'Gana Street', city: 'Abuja', state: 'FCT', description: 'Upscale, quiet Abuja district home to embassies and senior government residences.', managerId: 'u-musa' },
+    { id: 'loc-phgra', name: 'Port Harcourt GRA', area: 'Tombia Street, GRA Phase 2', city: 'Port Harcourt', state: 'Rivers State', description: 'Established residential area close to the oil and gas offices on Aba Road.', managerId: 'u-ebiere' },
   ];
 
   // ---------------- Properties & blocks ----------------
@@ -63,6 +71,12 @@ export function buildSeed(): AppState {
     { id: 'prop-hm', name: 'Herbert Macaulay Flats', short: 'Herbert Macaulay', type: 'Block of flats', locationId: 'loc-yaba', address: '112 Herbert Macaulay Way, Yaba, Lagos', managerId: 'u-tobi', addedAt: '2020-06-02', description: 'Two blocks of affordable flats close to the Yaba tech corridor.', amenities: ['Borehole water', 'Security post', 'Parking'], art: { bg: '#ECE3D2', a: '#8A6A34', b: '#3E4F6E' }, status: 'active' },
     { id: 'prop-gbagada', name: 'Gbagada Garden Estate', short: 'Gbagada Garden', type: 'Estate', locationId: 'loc-gbagada', address: '4 Garden Avenue, Gbagada Phase 2, Lagos', managerId: 'u-tobi', addedAt: '2022-09-15', description: 'Gated garden estate with family-sized flats.', amenities: ['24h power backup', 'Borehole water', 'Security post', 'Parking', 'Garden'], art: { bg: '#E3E9DD', a: '#2F5D4B', b: '#3E4F6E' }, status: 'active' },
     { id: 'prop-aminu', name: 'Aminu Kano Apartments', short: 'Aminu Kano', type: 'Serviced apartments', locationId: 'loc-wuse', address: '18 Aminu Kano Crescent, Wuse 2, Abuja', managerId: 'u-musa', addedAt: '2023-02-01', description: 'Serviced apartments in central Abuja with housekeeping.', amenities: ['24h power backup', 'Housekeeping', 'Elevator', 'Security post', 'Parking'], art: { bg: '#ECE3DC', a: '#2F5D4B', b: '#3E4F6E' }, status: 'active' },
+    { id: 'prop-adeola', name: 'Adeola Odeku Towers', short: 'Adeola Odeku', type: 'Luxury apartments', locationId: 'loc-vi', address: '41 Adeola Odeku Street, Victoria Island, Lagos', managerId: 'u-kemi', addedAt: '2024-04-08', description: 'High-rise apartments with a pool deck, gym and concierge, a short walk from the VI banks.', amenities: ['24h power backup', 'Elevator', 'Swimming pool', 'Gym', 'Concierge', 'Security post', 'Parking'], art: { bg: '#DCE3ED', a: '#3E4F6E', b: '#8A6A34' }, status: 'active' },
+    { id: 'prop-chevron', name: 'Chevron Drive Terraces', short: 'Chevron Terraces', type: 'Estate', locationId: 'loc-chevron', address: '9 Chevron Drive, Lekki, Lagos', managerId: 'u-kemi', addedAt: '2024-09-02', description: 'Gated estate of terraced duplexes and maisonettes with a playground and estate security.', amenities: ['24h power backup', 'Borehole water', 'Security post', 'Parking', 'Playground', 'CCTV'], art: { bg: '#E3E9DD', a: '#2F5D4B', b: '#8A6A34' }, status: 'active' },
+    { id: 'prop-addo', name: 'Addo Road Court', short: 'Addo Court', type: 'Block of flats', locationId: 'loc-ajah', address: '27 Addo Road, Ajah, Lagos', managerId: 'u-kemi', addedAt: '2025-01-15', description: 'Modern block of 1 and 2-bedroom flats close to the Ajah roundabout.', amenities: ['Borehole water', 'Security post', 'Parking', 'Prepaid meters'], art: { bg: '#ECE3D2', a: '#8A6A34', b: '#2F5D4B' }, status: 'active' },
+    { id: 'prop-isaacjohn', name: 'Isaac John Court', short: 'Isaac John', type: 'Apartment complex', locationId: 'loc-ikeja', address: '15 Isaac John Street, Ikeja GRA, Lagos', managerId: 'u-tobi', addedAt: '2023-11-20', description: 'Three-storey apartment complex on a tree-lined street, 15 minutes from the airport.', amenities: ['24h power backup', 'Borehole water', 'Security post', 'Parking', 'CCTV'], art: { bg: '#E7E3DA', a: '#3E4F6E', b: '#8A6A34' }, status: 'active' },
+    { id: 'prop-maitama', name: 'Maitama Villas', short: 'Maitama Villas', type: 'Luxury apartments', locationId: 'loc-maitama', address: '6 Gana Street, Maitama, Abuja', managerId: 'u-musa', addedAt: '2024-06-11', description: 'Detached and semi-detached villas with private pools, staff quarters and 24-hour security.', amenities: ['24h power backup', 'Swimming pool', 'Security post', 'Parking', 'Staff quarters', 'Garden'], art: { bg: '#DCE7E1', a: '#2F5D4B', b: '#3E4F6E' }, status: 'active' },
+    { id: 'prop-phgra', name: 'GRA Gardens Port Harcourt', short: 'GRA Gardens', type: 'Estate', locationId: 'loc-phgra', address: '3 Tombia Street, GRA Phase 2, Port Harcourt', managerId: 'u-ebiere', addedAt: '2025-03-03', description: 'Bungalows and family homes set around a shared garden and pool in GRA Phase 2.', amenities: ['24h power backup', 'Borehole water', 'Swimming pool', 'Security post', 'Parking', 'Garden'], art: { bg: '#E3E9DD', a: '#3E4F6E', b: '#2F5D4B' }, status: 'active' },
   ];
 
   const blockPlan: { propertyId: string; name: string; count: number }[] = [
@@ -81,14 +95,26 @@ export function buildSeed(): AppState {
     'prop-hm': { '1 Bedroom': 1_800_000, '2 Bedroom': 2_400_000, '3 Bedroom': 3_100_000 },
     'prop-gbagada': { '1 Bedroom': 1_500_000, '2 Bedroom': 3_200_000, '3 Bedroom': 3_900_000 },
     'prop-aminu': { Studio: 1_900_000, '1 Bedroom': 2_600_000, '2 Bedroom': 3_400_000 },
+    'prop-adeola': { '2 Bedroom': 6_800_000, '3 Bedroom': 8_900_000, Duplex: 12_500_000 },
+    'prop-chevron': { '3 Bedroom': 5_200_000, Duplex: 7_000_000 },
+    'prop-addo': { '1 Bedroom': 1_400_000, '2 Bedroom': 1_900_000 },
+    'prop-isaacjohn': { '1 Bedroom': 2_200_000, '2 Bedroom': 3_000_000, '3 Bedroom': 3_800_000 },
+    'prop-maitama': { '3 Bedroom': 9_000_000, Duplex: 14_000_000 },
+    'prop-phgra': { '2 Bedroom': 2_600_000, '3 Bedroom': 3_500_000, Duplex: 5_000_000 },
   };
-  const serviceTable: Record<string, number> = { 'prop-palm': 450_000, 'prop-bourdillon': 900_000, 'prop-hm': 250_000, 'prop-gbagada': 400_000, 'prop-aminu': 500_000 };
+  const serviceTable: Record<string, number> = { 'prop-palm': 450_000, 'prop-bourdillon': 900_000, 'prop-hm': 250_000, 'prop-gbagada': 400_000, 'prop-aminu': 500_000, 'prop-adeola': 1_200_000, 'prop-chevron': 600_000, 'prop-addo': 200_000, 'prop-isaacjohn': 350_000, 'prop-maitama': 1_500_000, 'prop-phgra': 400_000 };
   const typeCycle: Record<string, UnitType[]> = {
     'prop-palm': ['Duplex', 'Studio', '3 Bedroom', '1 Bedroom', '2 Bedroom', '3 Bedroom', '2 Bedroom', '1 Bedroom', '2 Bedroom', '1 Bedroom', '2 Bedroom', '2 Bedroom'],
     'prop-bourdillon': ['3 Bedroom', '2 Bedroom', '3 Bedroom', 'Duplex', '2 Bedroom'],
     'prop-hm': ['2 Bedroom', '1 Bedroom', '2 Bedroom', '1 Bedroom', '3 Bedroom', '2 Bedroom', '1 Bedroom', '2 Bedroom'],
     'prop-gbagada': ['2 Bedroom', '1 Bedroom', '1 Bedroom', '3 Bedroom', '2 Bedroom', '2 Bedroom'],
     'prop-aminu': ['1 Bedroom', 'Studio', '1 Bedroom', '2 Bedroom', '1 Bedroom', 'Studio', '2 Bedroom'],
+    'prop-adeola': ['2 Bedroom', '3 Bedroom', '2 Bedroom', '3 Bedroom', 'Duplex', '2 Bedroom'],
+    'prop-chevron': ['3 Bedroom', 'Duplex', '3 Bedroom', 'Duplex'],
+    'prop-addo': ['1 Bedroom', '2 Bedroom', '2 Bedroom', '1 Bedroom'],
+    'prop-isaacjohn': ['2 Bedroom', '1 Bedroom', '3 Bedroom'],
+    'prop-maitama': ['3 Bedroom', 'Duplex'],
+    'prop-phgra': ['2 Bedroom', '3 Bedroom', 'Duplex', '3 Bedroom', '2 Bedroom'],
   };
   const sizeOf: Record<UnitType, number> = { Studio: 38, '1 Bedroom': 68, '2 Bedroom': 96, '3 Bedroom': 128, Duplex: 180 };
 
@@ -108,11 +134,19 @@ export function buildSeed(): AppState {
     'prop-gbagada:A8': { status: 'maintenance', since: -15 },
     'prop-aminu:A12': { status: 'vacant', since: -19, note: 'Listed' },
     'prop-aminu:A5': { status: 'maintenance', since: -10 },
+    'prop-adeola:A11': { status: 'vacant', since: -21, note: 'Viewing booked' },
+    'prop-adeola:A6': { status: 'vacant', since: -48, note: 'Listed' },
+    'prop-chevron:B7': { status: 'vacant', since: -12, note: 'Listed' },
+    'prop-addo:A9': { status: 'vacant', since: -33, note: 'Listed' },
+    'prop-addo:A4': { status: 'maintenance', since: -5 },
+    'prop-isaacjohn:A8': { status: 'vacant', since: -16, note: 'Repairs' },
+    'prop-maitama:A7': { status: 'vacant', since: -64, note: 'Listed' },
+    'prop-phgra:A10': { status: 'vacant', since: -29, note: 'Viewing booked' },
   };
 
   const blocks: Block[] = [];
   const units: Unit[] = [];
-  blockPlan.forEach((bp) => {
+  const addBlock = (bp: { propertyId: string; name: string; count: number }) => {
     const perFloor = bp.count % 4 === 0 ? 4 : bp.count % 3 === 0 ? 3 : 2;
     const floors = Math.ceil(bp.count / perFloor);
     const blockId = `blk-${bp.propertyId.slice(5)}-${bp.name.toLowerCase()}`;
@@ -141,7 +175,8 @@ export function buildSeed(): AppState {
         vacantNote: sp?.note,
       });
     }
-  });
+  };
+  blockPlan.forEach(addBlock);
   const unitBy = (pid: string, code: string) => units.find((u) => u.propertyId === pid && u.code === code)!;
 
   // ---------------- Tenants & leases ----------------
@@ -329,7 +364,7 @@ export function buildSeed(): AppState {
   const requests: MaintenanceRequest[] = [];
   const unitOf = (t: Tenant) => units.find((u) => u.id === t.unitId)!;
   const vendorFor = (cat: Category, pid: string): string => {
-    const map: Partial<Record<Category, string>> = { Plumbing: pid === 'prop-aminu' ? 'ven-abujafix' : 'ven-aquafix', 'Water supply': 'ven-aquafix', Electrical: 'ven-voltline', 'Air conditioning': 'ven-coolair', Generator: 'ven-powergen', 'Building repairs': 'ven-buildright', Security: 'ven-safeguard', Cleaning: 'ven-sparkle', Pests: 'ven-pestaway' };
+    const map: Partial<Record<Category, string>> = { Plumbing: pid === 'prop-aminu' || pid === 'prop-maitama' ? 'ven-abujafix' : 'ven-aquafix', 'Water supply': 'ven-aquafix', Electrical: 'ven-voltline', 'Air conditioning': 'ven-coolair', Generator: 'ven-powergen', 'Building repairs': 'ven-buildright', Security: 'ven-safeguard', Cleaning: 'ven-sparkle', Pests: 'ven-pestaway' };
     return map[cat] ?? 'ven-buildright';
   };
 
@@ -449,13 +484,14 @@ export function buildSeed(): AppState {
   // ---------------- Documents ----------------
   const documents: DocFile[] = [];
   const pname = (pid?: string) => properties.find((p) => p.id === pid)?.short ?? '';
-  tenants.filter((t) => t.status === 'active').forEach((t, i) => {
+  const tenantDocs = (t: Tenant, i: number) => {
     const u = units.find((x) => x.id === t.unitId)!;
     const l = leases.find((x) => x.tenantId === t.id && !x.renewedTo)!;
     documents.push({ id: `doc-lease-${t.id}`, name: `Tenancy agreement ${l.start.slice(0, 4)} – ${t.name.split(' ')[0]} ${t.name.split(' ')[1][0]}.pdf`, kind: 'pdf', folder: 'Lease agreements', linkedTo: `${pname(t.propertyId)} · ${u.code}`, tenantId: t.id, propertyId: t.propertyId, uploadedBy: managerName(t.propertyId!), date: l.start, sizeKb: 1200 + (i % 7) * 90 });
     if (i % 2 === 0) documents.push({ id: `doc-id-${t.id}`, name: `${t.identification.type.includes('passport') ? 'passport' : 'NIN slip'} – ${t.name}.jpg`, kind: 'jpg', folder: 'Tenant ID and KYC', linkedTo: `${pname(t.propertyId)} · ${u.code}`, tenantId: t.id, propertyId: t.propertyId, uploadedBy: 'Tenant', date: t.joinedAt, sizeKb: 420, expires: i % 18 === 0 ? day(9 + i) : undefined });
     if (i % 3 === 0) documents.push({ id: `doc-rcpt-${t.id}`, name: `Rent receipt – ${t.name} – ${l.start.slice(0, 4)}.pdf`, kind: 'pdf', folder: 'Receipts', linkedTo: `${pname(t.propertyId)} · ${u.code}`, tenantId: t.id, propertyId: t.propertyId, uploadedBy: 'Femi Adewale', date: l.start, sizeKb: 180 });
-  });
+  };
+  tenants.filter((t) => t.status === 'active').forEach(tenantDocs);
   properties.forEach((p) => {
     documents.push({ id: `doc-cofo-${p.id}`, name: `Certificate of Occupancy – ${p.short}.pdf`, kind: 'pdf', folder: 'Property papers', linkedTo: p.short, propertyId: p.id, uploadedBy: 'Femi Adewale', date: p.addedAt, sizeKb: 2400 });
     documents.push({ id: `doc-plan-${p.id}`, name: `Building approval plan – ${p.short}.pdf`, kind: 'pdf', folder: 'Property papers', linkedTo: p.short, propertyId: p.id, uploadedBy: 'Femi Adewale', date: p.addedAt, sizeKb: 8100 });
@@ -512,6 +548,44 @@ export function buildSeed(): AppState {
     const [action, area] = logActions[i % logActions.length];
     logs.push({ id: `lg-x${i}`, at: at(-3 - Math.floor(i / 4), 8 + (i % 9), (i * 13) % 60), user: logUsers[i % logUsers.length], action, record: area === 'Maintenance' ? `MR-${2040 - i}` : area === 'Leases' ? `LS-0${150 + i}` : '—', area, device: '102.89.34.10 · Chrome, Windows' });
   }
+
+  // ---------------- Newer locations (VI, Chevron, Ajah, Ikeja GRA, Maitama, Port Harcourt) ----------------
+  // Units, tenants, leases and requests for these are built last so that every id and random value above
+  // stays the same: re-seeding the live project adds these rows instead of renumbering existing ones.
+  const firstNewUnit = units.length;
+  [
+    { propertyId: 'prop-adeola', name: 'A', count: 12 },
+    { propertyId: 'prop-chevron', name: 'A', count: 8 },
+    { propertyId: 'prop-chevron', name: 'B', count: 8 },
+    { propertyId: 'prop-addo', name: 'A', count: 12 },
+    { propertyId: 'prop-isaacjohn', name: 'A', count: 9 },
+    { propertyId: 'prop-maitama', name: 'A', count: 8 },
+    { propertyId: 'prop-phgra', name: 'A', count: 10 },
+  ].forEach(addBlock);
+  units.slice(firstNewUnit).filter((u) => u.status === 'occupied').forEach((unit) => {
+    const name = `${FIRST[(nameI * 7 + 3) % FIRST.length]} ${LAST[(nameI * 5 + 1) % LAST.length]}`;
+    nameI++;
+    const since = -randInt(20, 340); // moved in within the last year, so the current lease is their first
+    const t = makeTenant(unit, { name, since }, tenants.length);
+    tenants.push(t);
+    const l = makeLease(t, unit, nextLeaseId(), since + 365, managerName(unit.propertyId));
+    leases.push(l);
+    payments.push({ id: `pay-${l.id}`, tenantId: t.id, leaseId: l.id, label: 'Rent + service charge', amount: l.rent + l.serviceCharge, date: l.start, method: 'Bank transfer', status: 'paid' });
+    payments.push({ id: `dep-${l.id}`, tenantId: t.id, leaseId: l.id, label: 'Caution deposit', amount: l.deposit, date: l.start, method: 'Bank transfer', status: 'paid' });
+    tenantDocs(t, tenants.length - 1);
+  });
+  const firstTenantAt = (pid: string) => tenants.find((t) => t.propertyId === pid && t.status === 'active')!;
+  ([
+    { num: 2088, pid: 'prop-adeola', cat: 'Air conditioning', title: 'AC in master bedroom not cooling', pr: 'medium', st: 'new', d: 0, h: 9, where: 'Bedroom' },
+    { num: 2089, pid: 'prop-chevron', cat: 'Water supply', title: 'Borehole pump not pushing water upstairs', pr: 'high', st: 'assigned', d: -1, h: 7, where: 'Whole flat' },
+    { num: 2090, pid: 'prop-addo', cat: 'Electrical', title: 'Prepaid meter not accepting token', pr: 'medium', st: 'in_progress', d: -2, h: 11, where: 'Living room' },
+    { num: 2091, pid: 'prop-isaacjohn', cat: 'Plumbing', title: 'Leaking shower head', pr: 'low', st: 'new', d: -1, h: 18, where: 'Bathroom' },
+    { num: 2092, pid: 'prop-maitama', cat: 'Generator', title: 'Generator changeover slow at night', pr: 'medium', st: 'assigned', d: -3, h: 21, where: 'Whole flat' },
+    { num: 2093, pid: 'prop-phgra', cat: 'Security', title: 'Gate motor stuck half open', pr: 'high', st: 'in_progress', d: -2, h: 8, where: 'Common area' },
+  ] as { num: number; pid: string; cat: Category; title: string; pr: Priority; st: RequestStatus; d: number; h: number; where: string }[])
+    .forEach((r) => pushReq({ num: r.num, tenant: firstTenantAt(r.pid), cat: r.cat, title: r.title, pr: r.pr, st: r.st, created: at(r.d, r.h), where: r.where }));
+  requests.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  documents.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   return {
     version: STATE_VERSION,

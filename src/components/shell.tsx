@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleProp, StyleSheet, TextInput, View, ViewStyle } from 'react-native';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleProp, TextInput, View, ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import {
@@ -7,7 +7,7 @@ import {
   Menu as MenuIcon, MessageCircle, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users,
   Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, WifiOff, X, ClipboardList, Contact, Ellipsis, Receipt,
 } from 'lucide-react-native';
-import { colors, font, radius, shadow, useBreakpoint } from '../theme';
+import { colors, font, shadow, useBreakpoint } from '../theme';
 import { useLookup, useScope, useStore } from '../store/AppContext';
 import { useChat } from '../store/ChatContext';
 import { isOpen } from '../lib/workflow';
@@ -143,8 +143,8 @@ export function SectionTabs({ style }: { style?: StyleProp<ViewStyle> }) {
 export function Brand({ size = 'md', light = true }: { size?: 'md' | 'lg'; light?: boolean }) {
   const s = size === 'lg' ? 36 : 30;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-      <View style={{ width: s, height: s, borderRadius: 9, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}>
+    <View className="flex-row items-center gap-10">
+      <View className="rounded-[9px] bg-accent items-center justify-center" style={{ width: s, height: s }}>
         <House size={s * 0.5} color={colors.sidebar} strokeWidth={2.2} />
       </View>
       <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.white : colors.text} style={{ letterSpacing: -0.3 }}>
@@ -166,14 +166,14 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
   if (!me) return null;
   const sub = me.role === 'tenant' && myTenant ? `Tenant · ${lookup.property(myTenant.propertyId)?.short ?? ''} ${lookup.unit(myTenant.unitId)?.code ?? ''}` : `${roleLabel(me.role)}${me.role === 'super_admin' ? ' · Landlord' : ''}`;
   return (
-    <View style={{ flex: 1, backgroundColor: colors.sidebar, paddingTop: insets.top }}>
-      <View style={{ height: 64, paddingHorizontal: collapsed ? 0 : 18, justifyContent: 'center', alignItems: collapsed ? 'center' : 'flex-start', borderBottomWidth: 1, borderBottomColor: colors.sidebarBorder }}>
-        {collapsed ? <View style={{ width: 30, height: 30, borderRadius: 9, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' }}><House size={15} color={colors.sidebar} strokeWidth={2.2} /></View> : <Brand />}
+    <View className="flex-1 bg-sidebar" style={{ paddingTop: insets.top }}>
+      <View className={`h-64 justify-center border-b border-b-sidebar-border ${collapsed ? 'px-0 items-center' : 'px-18 items-start'}`}>
+        {collapsed ? <View className="w-30 h-30 rounded-[9px] bg-accent items-center justify-center"><House size={15} color={colors.sidebar} strokeWidth={2.2} /></View> : <Brand />}
       </View>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: collapsed ? 10 : 10, paddingVertical: 14 }} showsVerticalScrollIndicator={false}>
+      <ScrollView className="flex-1" contentContainerClassName="px-10 py-14" showsVerticalScrollIndicator={false}>
         {nav.map((s) => (
-          <View key={s.title} style={{ marginBottom: 8 }}>
-            {!collapsed ? <T size={10.5} weight="bold" color={colors.sidebarMuted} upper style={{ paddingHorizontal: 10, marginBottom: 4, marginTop: 4 }}>{s.title}</T> : <View style={{ height: 8 }} />}
+          <View key={s.title} className="mb-8">
+            {!collapsed ? <T size={10.5} weight="bold" color={colors.sidebarMuted} upper style={{ paddingHorizontal: 10, marginBottom: 4, marginTop: 4 }}>{s.title}</T> : <View className="h-8" />}
             {s.items.map((it) => {
               const on = active === it.key;
               return (
@@ -181,14 +181,14 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                   key={it.key}
                   accessibilityLabel={it.label}
                   onPress={() => { go(it.key); onNavigate?.(); }}
-                  style={[{ flexDirection: 'row', alignItems: 'center', gap: 11, height: 38, paddingHorizontal: collapsed ? 0 : 10, justifyContent: collapsed ? 'center' : 'flex-start', borderRadius: radius.sm + 1, marginBottom: 1 }, on && { backgroundColor: colors.sidebarRaised }]}
+                  className={`flex-row items-center gap-11 h-38 rounded-[9px] mb-1 ${collapsed ? 'px-0 justify-center' : 'px-10 justify-start'} ${on ? 'bg-sidebar-raised' : ''}`}
                   hoverStyle={{ backgroundColor: on ? colors.sidebarRaised : 'rgba(255,255,255,0.04)' }}
                 >
-                  {on ? <View style={{ position: 'absolute', left: 0, top: 8, bottom: 8, width: 3, borderRadius: 2, backgroundColor: colors.accent }} /> : null}
+                  {on ? <View className="absolute left-0 top-8 bottom-8 w-3 rounded-[2px] bg-accent" /> : null}
                   <it.icon size={17} color={on ? colors.white : colors.sidebarText} strokeWidth={1.8} />
                   {!collapsed ? <T size={13.5} weight={on ? 'semibold' : 'medium'} color={on ? colors.white : colors.sidebarText} style={{ flex: 1 }}>{it.label}</T> : null}
                   {it.badge ? (
-                    <View style={[{ minWidth: 19, height: 19, borderRadius: 10, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 }, collapsed && { position: 'absolute', top: 3, right: 6, minWidth: 15, height: 15 }]}>
+                    <View className={`rounded-[10px] bg-danger items-center justify-center px-5 ${collapsed ? 'absolute top-3 right-6 min-w-15 h-15' : 'min-w-19 h-19'}`}>
                       <T size={collapsed ? 9 : 10.5} weight="bold" color={colors.white} style={{ lineHeight: 13 }}>{it.badge}</T>
                     </View>
                   ) : null}
@@ -198,11 +198,11 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
           </View>
         ))}
       </ScrollView>
-      <View style={{ padding: 10, paddingBottom: 10 + insets.bottom }}>
-        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: collapsed ? 6 : 10, borderRadius: radius.md, backgroundColor: colors.sidebarRaised, justifyContent: collapsed ? 'center' : 'flex-start' }}>
+      <View className="p-10" style={{ paddingBottom: 10 + insets.bottom }}>
+        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} className={`flex-row items-center gap-10 rounded-md bg-sidebar-raised ${collapsed ? 'p-6 justify-center' : 'p-10 justify-start'}`}>
           <Avatar name={me.name} size={32} tone={[colors.accent, colors.sidebar]} />
           {!collapsed ? (
-            <View style={{ flex: 1 }}>
+            <View className="flex-1">
               <T size={13} weight="semibold" color={colors.white} numberOfLines={1}>{me.name}</T>
               <T size={11} color={colors.sidebarMuted} numberOfLines={1}>{sub}</T>
             </View>
@@ -251,8 +251,8 @@ function SearchBox({ compact, autoFocus, onDone }: { compact?: boolean; autoFocu
 
   const showResults = focus && q.trim().length >= 2;
   return (
-    <View style={{ flex: 1, maxWidth: compact ? undefined : 420, zIndex: 50 }}>
-      <View style={[styles.search, focus && { borderColor: colors.primary, backgroundColor: colors.card }]}>
+    <View className={`flex-1 z-50 ${compact ? '' : 'max-w-420'}`}>
+      <View className={`flex-row items-center gap-9 h-40 rounded-md border px-12 ${focus ? 'border-primary bg-card' : 'border-border bg-card-alt'}`}>
         <Search size={16} color={colors.subtext} />
         <TextInput
           ref={inputRef}
@@ -265,17 +265,17 @@ function SearchBox({ compact, autoFocus, onDone }: { compact?: boolean; autoFocu
           placeholderTextColor={colors.faint}
           style={[{ flex: 1, fontFamily: font.regular, fontSize: 13.5, color: colors.text, paddingVertical: 0 }, Platform.OS === 'web' ? ({ outlineStyle: 'none' } as any) : null]}
         />
-        {!compact && Platform.OS === 'web' ? <View style={styles.kbd}><T size={10.5} weight="semibold" color={colors.subtext}>Ctrl K</T></View> : null}
+        {!compact && Platform.OS === 'web' ? <View className="border border-border rounded-[5px] px-6 py-1 bg-card"><T size={10.5} weight="semibold" color={colors.subtext}>Ctrl K</T></View> : null}
         {compact ? <Pressable onPress={onDone} hitSlop={8}><X size={17} color={colors.subtext} /></Pressable> : null}
       </View>
       {showResults ? (
-        <View style={[styles.results]}>
+        <View className="absolute top-46 left-0 right-0 bg-card rounded-md border border-border pb-6" style={shadow.pop}>
           {results.length === 0 ? <T size={13} color={colors.subtext} style={{ padding: 14 }}>No matches for “{q}”</T> : (
             <ScrollView style={{ maxHeight: 380 }} keyboardShouldPersistTaps="handled">
               {results.map((r, i) => (
                 <View key={r.key}>
                   {i === 0 || results[i - 1].group !== r.group ? <T size={10.5} weight="bold" color={colors.faint} upper style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 3 }}>{r.group}</T> : null}
-                  <Touch onPress={() => { r.go(); setQ(''); onDone?.(); }} style={{ paddingHorizontal: 14, paddingVertical: 8 }} hoverStyle={{ backgroundColor: colors.cardAlt }}>
+                  <Touch onPress={() => { r.go(); setQ(''); onDone?.(); }} className="px-14 py-8" hoverStyle={{ backgroundColor: colors.cardAlt }}>
                     <T size={13} weight="semibold" numberOfLines={1}>{r.title}</T>
                     <T size={11.5} color={colors.subtext} numberOfLines={1}>{r.sub}</T>
                   </Touch>
@@ -306,7 +306,7 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
   const canWrite = me.role === 'super_admin' || me.role === 'manager';
 
   const userMenu = (open: () => void) => (
-    <Touch onPress={open} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: mobile ? 4 : 12, paddingVertical: 4, borderLeftWidth: mobile ? 0 : 1, borderLeftColor: colors.border }}>
+    <Touch onPress={open} className={`flex-row items-center gap-10 py-4 border-l-border ${mobile ? 'pl-4 border-l-0' : 'pl-12 border-l'}`}>
       <Avatar name={me.name} size={34} tone={[colors.accentSoft, colors.accentDeep]} />
       {bp === 'desktop' ? (
         <View>
@@ -328,24 +328,24 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
 
   if (mobile && searching) {
     return (
-      <View style={[styles.topbar, { paddingTop: insets.top, height: 60 + insets.top, paddingHorizontal: 12 }]}>
+      <View className={`${TOPBAR} px-12`} style={{ paddingTop: insets.top, height: 60 + insets.top }}>
         <SearchBox compact autoFocus onDone={() => setSearching(false)} />
       </View>
     );
   }
 
   return (
-    <View style={[styles.topbar, { paddingTop: insets.top, height: (mobile ? 60 : 64) + insets.top, paddingHorizontal: mobile ? 10 : 20, gap: mobile ? 4 : 12 }]}>
-      {tabs ? <View style={{ width: 6 }} /> : (
-        <Touch onPress={onToggleSidebar} accessibilityLabel={mobile ? 'Open menu' : 'Collapse or expand the sidebar'} style={{ width: 36, height: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
+    <View className={`${TOPBAR} ${mobile ? 'px-10 gap-4' : 'px-20 gap-12'}`} style={{ paddingTop: insets.top, height: (mobile ? 60 : 64) + insets.top }}>
+      {tabs ? <View className="w-6" /> : (
+        <Touch onPress={onToggleSidebar} accessibilityLabel={mobile ? 'Open menu' : 'Collapse or expand the sidebar'} className="w-36 h-36 rounded-sm items-center justify-center" hoverStyle={{ backgroundColor: colors.neutralSoft }}>
           {mobile ? <MenuIcon size={21} color={colors.text} /> : <PanelLeft size={19} color={colors.textSoft} strokeWidth={1.8} />}
         </Touch>
       )}
       {mobile ? (
-        <View style={{ flex: 1 }}><Brand light={false} /></View>
+        <View className="flex-1"><Brand light={false} /></View>
       ) : isTenant ? (
-        <View style={{ flex: 1, flexDirection: 'row' }}>
-          <View style={styles.homePill}>
+        <View className="flex-1 flex-row">
+          <View className="flex-row items-center gap-9 border border-border rounded-md px-12 py-5 bg-card-alt">
             <House size={15} color={colors.subtext} />
             <View>
               <T size={10.5} color={colors.subtext} style={{ lineHeight: 12 }}>Your home</T>
@@ -366,13 +366,13 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
               style={{ minWidth: 190, backgroundColor: colors.cardAlt }}
             />
           ) : null}
-          <View style={{ flex: 1 }} />
+          <View className="flex-1" />
           {canWrite ? (
             <Menu
               width={240}
               header="Quick add"
               trigger={(open) => (
-                <Touch onPress={open} style={styles.quickAdd} hoverStyle={{ backgroundColor: colors.primaryHover }}>
+                <Touch onPress={open} className="flex-row items-center gap-7 h-40 px-14 rounded-md bg-primary" hoverStyle={{ backgroundColor: colors.primaryHover }}>
                   <Plus size={16} color={colors.white} strokeWidth={2.2} />
                   {bp === 'desktop' ? <T size={13.5} weight="semibold" color={colors.white}>Quick Add</T> : null}
                   <ChevronDown size={14} color={colors.white} />
@@ -402,10 +402,10 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
 
 function IconBtn({ icon: Icon, badge, onPress, label }: { icon: LucideIcon; badge?: number; onPress: () => void; label: string }) {
   return (
-    <Touch onPress={onPress} accessibilityLabel={badge ? `${label}, ${badge} new` : label} style={{ width: 38, height: 38, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' }} hoverStyle={{ backgroundColor: colors.neutralSoft }}>
+    <Touch onPress={onPress} accessibilityLabel={badge ? `${label}, ${badge} new` : label} className="w-38 h-38 rounded-md items-center justify-center" hoverStyle={{ backgroundColor: colors.neutralSoft }}>
       <Icon size={19} color={colors.textSoft} strokeWidth={1.8} />
       {badge ? (
-        <View style={{ position: 'absolute', top: 3, right: 2, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.card }}>
+        <View className={`absolute top-3 right-2 ${COUNT_DOT}`}>
           <T size={9.5} weight="bold" color={colors.white} style={{ lineHeight: 12 }}>{badge > 99 ? '99+' : badge}</T>
         </View>
       ) : null}
@@ -420,7 +420,7 @@ function OfflineBanner() {
   const { live } = useStore();
   if (live.connection !== 'offline') return null;
   return (
-    <View accessibilityRole="alert" style={{ flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 16, paddingVertical: 9, backgroundColor: colors.warningSoft, borderBottomWidth: 1, borderBottomColor: colors.warning + '40' }}>
+    <View accessibilityRole="alert" className="flex-row items-center gap-9 px-16 py-9 bg-warning-soft border-b border-b-warning/25">
       <WifiOff size={16} color={colors.warning} />
       <T size={12.5} weight="medium" style={{ flex: 1 }}>
         You’re offline{live.updatedAt ? `. Showing updates up to ${fmtTime(live.updatedAt)}` : ''}. Changes won’t save until you reconnect.
@@ -479,16 +479,16 @@ function BottomTabs({ onMore }: { onMore: () => void }) {
   const item = (t: Tab, on: boolean, onPress: () => void) => (
     <Pressable key={t.key} onPress={onPress} accessibilityRole="tab" accessibilityState={{ selected: on }}
       accessibilityLabel={t.badge ? `${t.label}, ${t.badge} waiting` : t.label}
-      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, minHeight: 56 }}>
+      className="flex-1 items-center justify-center gap-3 min-h-56">
       {t.raised ? (
-        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', marginTop: -10, ...shadow.pop }}>
+        <View className="w-42 h-42 rounded-[21px] bg-primary items-center justify-center -mt-10" style={shadow.pop}>
           <t.icon size={22} color={colors.white} strokeWidth={2.2} />
         </View>
       ) : (
         <View>
           <t.icon size={22} color={on ? colors.primary : colors.subtext} strokeWidth={on ? 2.1 : 1.8} />
           {t.badge ? (
-            <View style={{ position: 'absolute', top: -5, right: -9, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.card }}>
+            <View className={`absolute -top-5 -right-9 ${COUNT_DOT}`}>
               <T size={9.5} weight="bold" color={colors.white} style={{ lineHeight: 12 }}>{t.badge > 99 ? '99+' : t.badge}</T>
             </View>
           ) : null}
@@ -498,7 +498,7 @@ function BottomTabs({ onMore }: { onMore: () => void }) {
     </Pressable>
   );
   return (
-    <View accessibilityRole="tablist" style={{ flexDirection: 'row', backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, paddingBottom: insets.bottom, paddingHorizontal: 4 }}>
+    <View accessibilityRole="tablist" className="flex-row bg-card border-t border-t-border px-4" style={{ paddingBottom: insets.bottom }}>
       {tabs.map((t) => item(t, active === t.key, () => go(t.key)))}
       {item({ key: 'more', label: 'More', icon: Ellipsis }, !tabs.some((t) => t.key === active), onMore)}
     </View>
@@ -519,21 +519,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [previousRoute, setPreviousRoute] = useState(routeKey);
   if (previousRoute !== routeKey) { setPreviousRoute(routeKey); setDrawer(false); }
   return (
-    <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.bg }}>
-      {!overlay ? <View style={{ width: collapsed ? 72 : 244 }}><Sidebar collapsed={collapsed} /></View> : null}
-      <View style={{ flex: 1 }}>
+    <View className="flex-1 flex-row bg-bg">
+      {!overlay ? <View className={collapsed ? 'w-72' : 'w-244'}><Sidebar collapsed={collapsed} /></View> : null}
+      <View className="flex-1">
         <Topbar mobile={bp === 'mobile'} tabs={tabs} onToggleSidebar={() => (overlay ? setDrawer(true) : setCollapsed((c) => !c))} />
         <OfflineBanner />
         <TabsShown.Provider value={tabs}>
-          <View style={{ flex: 1, zIndex: 1 }}>{children}</View>
+          <View className="flex-1 z-1">{children}</View>
         </TabsShown.Provider>
         {tabs ? <BottomTabs onMore={() => setDrawer(true)} /> : null}
       </View>
       {overlay ? (
         <Modal transparent visible={drawer} animationType="fade" onRequestClose={() => setDrawer(false)}>
-          <View style={{ flex: 1, flexDirection: 'row' }}>
-            <View style={{ width: 272 }}><Sidebar collapsed={false} onNavigate={() => setDrawer(false)} /></View>
-            <Pressable style={{ flex: 1, backgroundColor: colors.overlay }} onPress={() => setDrawer(false)} accessibilityLabel="Close menu" />
+          <View className="flex-1 flex-row">
+            <View className="w-272"><Sidebar collapsed={false} onNavigate={() => setDrawer(false)} /></View>
+            <Pressable className="flex-1 bg-overlay" onPress={() => setDrawer(false)} accessibilityLabel="Close menu" />
           </View>
         </Modal>
       ) : null}
@@ -567,7 +567,7 @@ export function Page({ children, maxWidth, style, footer }: { children: React.Re
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={[{ padding: isMobile ? 16 : 28, paddingBottom: 48 }, style]} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" refreshControl={refreshControl}>
-        <View style={{ width: '100%', maxWidth: maxWidth ?? 1480, alignSelf: 'center' }}>{children}</View>
+        <View className="w-full self-center" style={{ maxWidth: maxWidth ?? 1480 }}>{children}</View>
       </ScrollView>
       {footer}
     </KeyboardAvoidingView>
@@ -578,10 +578,10 @@ export function PageHeader({ crumbs, title, subtitle, actions, badge }: { crumbs
   const { navigate } = useRouter();
   const { isMobile } = useBreakpoint();
   return (
-    <View style={{ marginBottom: title || actions ? 22 : 12 }}>
+    <View className={title || actions ? 'mb-22' : 'mb-12'}>
       <SectionTabs style={{ marginBottom: 16 }} />
       {crumbs?.length ? (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        <View className="flex-row items-center gap-6 mb-6 flex-wrap">
           {crumbs.map((c, i) => (
             <React.Fragment key={i}>
               {i > 0 ? <T size={12.5} color={colors.faint}>/</T> : null}
@@ -590,15 +590,15 @@ export function PageHeader({ crumbs, title, subtitle, actions, badge }: { crumbs
           ))}
         </View>
       ) : null}
-      {title || actions ? <View style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'flex-end', justifyContent: 'space-between', gap: 14 }}>
-        <View style={{ flexShrink: 1 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      {title || actions ? <View className={`justify-between gap-14 ${isMobile ? 'flex-col items-start' : 'flex-row items-end'}`}>
+        <View className="shrink">
+          <View className="flex-row items-center gap-10 flex-wrap">
             <T size={isMobile ? 22 : 26} weight="bold" style={{ letterSpacing: -0.4 }}>{title}</T>
             {badge}
           </View>
           {subtitle ? <T size={13} color={colors.subtext} style={{ marginTop: 3 }}>{subtitle}</T> : null}
         </View>
-        {actions ? <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>{actions}</View> : null}
+        {actions ? <View className="flex-row gap-10 flex-wrap items-center">{actions}</View> : null}
       </View> : null}
     </View>
   );
@@ -608,7 +608,7 @@ export function StickyFooter({ children }: { children: React.ReactNode }) {
   const insets = useSafeAreaInsets();
   const tabs = useContext(TabsShown);
   return (
-    <View style={{ borderTopWidth: 1, borderTopColor: colors.border, backgroundColor: colors.card, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 12 + (tabs ? 0 : insets.bottom), flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+    <View className="border-t border-t-border bg-card px-20 pt-12 flex-row items-center gap-10" style={{ paddingBottom: 12 + (tabs ? 0 : insets.bottom) }}>
       {children}
     </View>
   );
@@ -616,11 +616,7 @@ export function StickyFooter({ children }: { children: React.ReactNode }) {
 
 export { ChevronRight };
 
-const styles = StyleSheet.create({
-  topbar: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border, zIndex: 20 },
-  search: { flexDirection: 'row', alignItems: 'center', gap: 9, height: 40, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.cardAlt, paddingHorizontal: 12 },
-  kbd: { borderWidth: 1, borderColor: colors.border, borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, backgroundColor: colors.card },
-  results: { position: 'absolute', top: 46, left: 0, right: 0, backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingBottom: 6, ...shadow.pop },
-  quickAdd: { flexDirection: 'row', alignItems: 'center', gap: 7, height: 40, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.primary },
-  homePill: { flexDirection: 'row', alignItems: 'center', gap: 9, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 5, backgroundColor: colors.cardAlt },
-});
+const TOPBAR = 'flex-row items-center bg-card border-b border-b-border z-20';
+// Red count bubble on the top-bar icons and bottom tabs
+const COUNT_DOT = 'min-w-17 h-17 rounded-[9px] bg-danger items-center justify-center px-4 border-2 border-card';
+

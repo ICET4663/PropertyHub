@@ -50,12 +50,13 @@ export function Link({ children, onPress, size = 13, color = colors.primary, wei
 // Inner Touches (e.g. an action button inside a pressable card) drop the role so they render as a <div>.
 const InsideTouch = createContext(false);
 
-export function Touch({ onPress, style, hoverStyle, children, disabled, accessibilityLabel }: {
-  onPress?: () => void; style?: StyleProp<ViewStyle>; hoverStyle?: StyleProp<ViewStyle>; children: React.ReactNode; disabled?: boolean; accessibilityLabel?: string;
+export function Touch({ onPress, style, hoverStyle, children, disabled, accessibilityLabel, className }: {
+  onPress?: () => void; style?: StyleProp<ViewStyle>; hoverStyle?: StyleProp<ViewStyle>; children: React.ReactNode; disabled?: boolean; accessibilityLabel?: string; className?: string;
 }) {
   const nested = useContext(InsideTouch);
   return (
     <Pressable
+      className={className}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole={nested && Platform.OS === 'web' ? undefined : 'button'}
@@ -91,9 +92,9 @@ export function Button({ title, onPress, variant = 'primary', icon: Icon, iconRi
     <Touch
       onPress={loading ? undefined : onPress}
       disabled={disabled}
+      className={`flex-row items-center justify-center gap-7 rounded-md border ${full ? 'self-stretch' : ''} ${disabled ? 'opacity-50' : ''}`}
       style={[
-        { height: h, paddingHorizontal: title ? (size === 'sm' ? 12 : 16) : 0, width: title ? undefined : h, borderRadius: radius.md, backgroundColor: v.bg, borderWidth: 1, borderColor: v.border, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: disabled ? 0.5 : 1 },
-        full && { alignSelf: 'stretch' },
+        { height: h, paddingHorizontal: title ? (size === 'sm' ? 12 : 16) : 0, width: title ? undefined : h, backgroundColor: v.bg, borderColor: v.border },
         style,
       ]}
       hoverStyle={{ backgroundColor: v.hover }}
@@ -112,7 +113,7 @@ export function CallButton({ phone, name, compact }: { phone?: string; name: str
   const call = () => { void Linking.openURL(`tel:${digits}`).catch(() => {}); };
   return compact
     ? <IconButton icon={Phone} onPress={call} bordered size={40} color={colors.primary} accessibilityLabel={`Call ${name}`} />
-    : <Touch onPress={call} accessibilityLabel={`Call ${name}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 7, height: 40, paddingHorizontal: 14, borderRadius: radius.md, backgroundColor: colors.primarySoft }}>
+    : <Touch onPress={call} accessibilityLabel={`Call ${name}`} className="flex-row items-center gap-7 h-40 px-14 rounded-md bg-primary-soft">
       <Phone size={15} color={colors.primary} strokeWidth={2} /><T size={13.5} weight="semibold" color={colors.primary}>Call</T>
     </Touch>;
 }
@@ -124,12 +125,13 @@ export function IconButton({ icon: Icon, onPress, badge, size = 38, color = colo
     <Touch
       onPress={onPress}
       accessibilityLabel={accessibilityLabel}
-      style={{ width: size, height: size, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', borderWidth: bordered ? 1 : 0, borderColor: colors.border, backgroundColor: bordered ? colors.card : 'transparent' }}
+      className={`items-center justify-center rounded-md border-border ${bordered ? 'border bg-card' : 'border-0 bg-transparent'}`}
+      style={{ width: size, height: size }}
       hoverStyle={{ backgroundColor: colors.neutralSoft }}
     >
       <Icon size={19} color={color} strokeWidth={1.8} />
       {badge ? (
-        <View style={{ position: 'absolute', top: 2, right: 1, minWidth: 17, height: 17, borderRadius: 9, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4, borderWidth: 2, borderColor: colors.card }}>
+        <View className="absolute top-2 right-1 min-w-17 h-17 rounded-[9px] bg-danger items-center justify-center px-4 border-2 border-card">
           <T size={9.5} weight="bold" color={colors.white} style={{ lineHeight: 12 }}>{badge > 99 ? '99+' : badge}</T>
         </View>
       ) : null}
@@ -139,27 +141,30 @@ export function IconButton({ icon: Icon, onPress, badge, size = 38, color = colo
 
 // ---------------------------------------------------------------- Surfaces
 
-export function Card({ children, style, pad = 20, onPress, tint }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; onPress?: () => void; tint?: string }) {
-  const s = [styles.card, { padding: pad }, tint ? { backgroundColor: tint } : null, style];
-  if (onPress) return <Touch onPress={onPress} style={s} hoverStyle={{ borderColor: colors.borderStrong }}>{children}</Touch>;
-  return <View style={s}>{children}</View>;
+// Cards: bg-card rounded-lg border border-border. The shadow stays a style object (shadow.card) so it
+// looks the same on iOS, Android and the web.
+export function Card({ children, style, pad = 20, onPress, tint, className = '' }: { children: React.ReactNode; style?: StyleProp<ViewStyle>; pad?: number; onPress?: () => void; tint?: string; className?: string }) {
+  const cls = `bg-card rounded-lg border border-border ${className}`;
+  const s = [shadow.card, { padding: pad }, tint ? { backgroundColor: tint } : null, style];
+  if (onPress) return <Touch onPress={onPress} className={cls} style={s} hoverStyle={{ borderColor: colors.borderStrong }}>{children}</Touch>;
+  return <View className={cls} style={s}>{children}</View>;
 }
 
-export function CardHeader({ title, subtitle, right, style }: { title: string; subtitle?: string; right?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+export function CardHeader({ title, subtitle, right, style, className = '' }: { title: string; subtitle?: string; right?: React.ReactNode; style?: StyleProp<ViewStyle>; className?: string }) {
   return (
-    <View style={[{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16 }, style]}>
+    <View className={`flex-row flex-wrap items-start justify-between gap-12 mb-16 ${className}`} style={style}>
       {/* Keeps the title readable on phones: long right-hand content wraps below it instead of squeezing it. */}
-      <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: 0, minWidth: 160 }}>
+      <View className="grow shrink basis-0 min-w-160">
         <T size={15.5} weight="semibold">{title}</T>
         {subtitle ? <T size={12.5} color={colors.subtext} style={{ marginTop: 2 }}>{subtitle}</T> : null}
       </View>
-      {right ? <View style={{ flexShrink: 1 }}>{right}</View> : null}
+      {right ? <View className="shrink">{right}</View> : null}
     </View>
   );
 }
 
-export function Divider({ style, vertical }: { style?: StyleProp<ViewStyle>; vertical?: boolean }) {
-  return <View style={[vertical ? { width: 1, alignSelf: 'stretch', backgroundColor: colors.border } : { height: 1, backgroundColor: colors.border }, style]} />;
+export function Divider({ style, vertical, className = '' }: { style?: StyleProp<ViewStyle>; vertical?: boolean; className?: string }) {
+  return <View className={`bg-border ${vertical ? 'w-1 self-stretch' : 'h-1'} ${className}`} style={style} />;
 }
 
 // ---------------------------------------------------------------- Badges
@@ -178,11 +183,11 @@ export const toneColors: Record<Tone, [string, string]> = {
   dangerSolid: [colors.dangerDeep, colors.white],
 };
 
-export function Badge({ label, tone = 'neutral', dot, size = 'md', icon: Icon, style }: { label: string | number; tone?: Tone; dot?: boolean; size?: 'sm' | 'md'; icon?: LucideIcon; style?: StyleProp<ViewStyle> }) {
+export function Badge({ label, tone = 'neutral', dot, size = 'md', icon: Icon, style, className = '' }: { label: string | number; tone?: Tone; dot?: boolean; size?: 'sm' | 'md'; icon?: LucideIcon; style?: StyleProp<ViewStyle>; className?: string }) {
   const [bg, fg] = toneColors[tone];
   return (
-    <View style={[{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: bg, borderRadius: radius.full, paddingHorizontal: size === 'sm' ? 7 : 9, paddingVertical: size === 'sm' ? 2 : 3.5, gap: 5 }, style]}>
-      {dot ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} /> : null}
+    <View className={`flex-row items-center self-start rounded-full gap-5 ${size === 'sm' ? 'px-7 py-2' : 'px-9 py-3.5'} ${className}`} style={[{ backgroundColor: bg }, style]}>
+      {dot ? <View className="w-6 h-6 rounded-[3px]" style={{ backgroundColor: fg }} /> : null}
       {Icon ? <Icon size={11} color={fg} strokeWidth={2.2} /> : null}
       <T size={size === 'sm' ? 10.5 : 11.5} weight="semibold" color={fg} numberOfLines={1}>{label}</T>
     </View>
@@ -191,7 +196,7 @@ export function Badge({ label, tone = 'neutral', dot, size = 'md', icon: Icon, s
 
 export function CountPill({ n, active }: { n: number | string; active?: boolean }) {
   return (
-    <View style={{ backgroundColor: active ? colors.primarySoft : colors.neutralSoft, borderRadius: radius.full, paddingHorizontal: 7, paddingVertical: 1, marginLeft: 6 }}>
+    <View className={`rounded-full px-7 py-1 ml-6 ${active ? 'bg-primary-soft' : 'bg-neutral-soft'}`}>
       <T size={11} weight="semibold" color={active ? colors.primary : colors.subtext}>{n}</T>
     </View>
   );
@@ -202,7 +207,7 @@ export function CountPill({ n, active }: { n: number | string; active?: boolean 
 export function Avatar({ name, size = 32, tone }: { name: string; size?: number; tone?: [string, string] }) {
   const [bg, fg] = tone ?? AVATAR_TONES[hashIndex(name, AVATAR_TONES.length)];
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+    <View className="items-center justify-center" style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg }}>
       <T size={Math.max(9, size * 0.34)} weight="bold" color={fg} style={{ lineHeight: size * 0.5 }}>{initials(name)}</T>
     </View>
   );
@@ -211,7 +216,7 @@ export function Avatar({ name, size = 32, tone }: { name: string; size?: number;
 export function IconTile({ icon: Icon, tone = 'primary', size = 34, iconSize }: { icon: LucideIcon; tone?: Tone; size?: number; iconSize?: number }) {
   const [bg, fg] = toneColors[tone];
   return (
-    <View style={{ width: size, height: size, borderRadius: radius.sm + 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
+    <View className="rounded-md items-center justify-center" style={{ width: size, height: size, backgroundColor: bg }}>
       <Icon size={iconSize ?? size * 0.5} color={fg} strokeWidth={1.9} />
     </View>
   );
@@ -223,9 +228,9 @@ export function Field({ label, required, hint, error, children, right, style, op
   label?: string; required?: boolean; hint?: string; error?: string; children: React.ReactNode; right?: React.ReactNode; style?: StyleProp<ViewStyle>; optional?: boolean;
 }) {
   return (
-    <View style={[{ gap: 6 }, style]}>
+    <View className="gap-6" style={style}>
       {label ? (
-        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <View className="flex-row justify-between items-center">
           <T size={12.5} weight="semibold" color={colors.textSoft}>
             {label}{required ? <T size={12.5} color={colors.danger}> *</T> : null}{optional ? <T size={12} color={colors.faint}> (optional)</T> : null}
           </T>
@@ -270,12 +275,12 @@ export function Input({ label, required, hint, error, secure, leftIcon: L, right
 
 export function Checkbox({ checked, onChange, label, sub, style }: { checked: boolean; onChange: (v: boolean) => void; label?: React.ReactNode; sub?: string; style?: StyleProp<ViewStyle> }) {
   return (
-    <Pressable onPress={() => onChange(!checked)} style={[{ flexDirection: 'row', alignItems: sub ? 'flex-start' : 'center', gap: 9 }, style]} accessibilityRole="checkbox" accessibilityState={{ checked }}>
-      <View style={{ width: 17, height: 17, borderRadius: 4.5, borderWidth: 1.5, borderColor: checked ? colors.primary : colors.borderStrong, backgroundColor: checked ? colors.primary : colors.card, alignItems: 'center', justifyContent: 'center', marginTop: sub ? 1 : 0 }}>
+    <Pressable onPress={() => onChange(!checked)} className={`flex-row gap-9 ${sub ? 'items-start' : 'items-center'}`} style={style} accessibilityRole="checkbox" accessibilityState={{ checked }}>
+      <View className={`w-17 h-17 rounded-[4.5px] border-[1.5px] items-center justify-center ${checked ? 'border-primary bg-primary' : 'border-border-strong bg-card'} ${sub ? 'mt-1' : ''}`}>
         {checked ? <Check size={12} color={colors.white} strokeWidth={3} /> : null}
       </View>
       {label ? (
-        <View style={{ flex: 1 }}>
+        <View className="flex-1">
           {typeof label === 'string' ? <T size={13} color={colors.textSoft}>{label}</T> : label}
           {sub ? <T size={11.5} color={colors.subtext}>{sub}</T> : null}
         </View>
@@ -286,17 +291,17 @@ export function Checkbox({ checked, onChange, label, sub, style }: { checked: bo
 
 export function Radio({ selected }: { selected: boolean }) {
   return (
-    <View style={{ width: 17, height: 17, borderRadius: 9, borderWidth: 1.5, borderColor: selected ? colors.primary : colors.borderStrong, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card }}>
-      {selected ? <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary }} /> : null}
+    <View className={`w-17 h-17 rounded-[9px] border-[1.5px] items-center justify-center bg-card ${selected ? 'border-primary' : 'border-border-strong'}`}>
+      {selected ? <View className="w-9 h-9 rounded-[5px] bg-primary" /> : null}
     </View>
   );
 }
 
 export function RadioCard({ selected, onPress, title, sub, icon: Icon, right, style }: { selected: boolean; onPress: () => void; title: string; sub?: string; icon?: LucideIcon; right?: React.ReactNode; style?: StyleProp<ViewStyle> }) {
   return (
-    <Touch onPress={onPress} style={[{ flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1.5, borderColor: selected ? colors.primary : colors.border, backgroundColor: selected ? colors.primaryTint : colors.card, borderRadius: radius.md, padding: 12 }, style]} hoverStyle={{ borderColor: selected ? colors.primary : colors.borderStrong }}>
+    <Touch onPress={onPress} className={`flex-row items-center gap-11 border-[1.5px] rounded-md p-12 ${selected ? 'border-primary bg-primary-tint' : 'border-border bg-card'}`} style={style} hoverStyle={{ borderColor: selected ? colors.primary : colors.borderStrong }}>
       {Icon ? <Icon size={17} color={selected ? colors.primary : colors.subtext} /> : <Radio selected={selected} />}
-      <View style={{ flex: 1 }}>
+      <View className="flex-1">
         <T size={13} weight="semibold">{title}</T>
         {sub ? <T size={11.5} color={colors.subtext}>{sub}</T> : null}
       </View>
@@ -368,8 +373,8 @@ export function Select<V extends string>({ value, options, onChange, placeholder
       </View>
       <Popover open={isOpen} anchor={anchor} onClose={close}>
         {options.map((o) => (
-          <Touch key={o.value} onPress={() => { onChange(o.value); close(); }} style={styles.menuItem} hoverStyle={{ backgroundColor: colors.cardAlt }}>
-            <View style={{ flex: 1 }}>
+          <Touch key={o.value} onPress={() => { onChange(o.value); close(); }} className={MENU_ITEM} hoverStyle={{ backgroundColor: colors.cardAlt }}>
+            <View className="flex-1">
               <T size={13.5} weight={o.value === value ? 'semibold' : 'regular'}>{o.label}</T>
               {o.sub ? <T size={11.5} color={colors.subtext}>{o.sub}</T> : null}
             </View>
@@ -391,7 +396,7 @@ export function Menu({ trigger, items, width = 220, align = 'right', header }: {
       <Popover open={isOpen} anchor={anchor} onClose={close} width={width} align={align}>
         {header ? <T size={10.5} weight="bold" color={colors.faint} upper style={{ paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 }}>{header}</T> : null}
         {items.map((it, i) => (
-          <Touch key={i} onPress={() => { close(); setTimeout(it.onPress, 0); }} style={styles.menuItem} hoverStyle={{ backgroundColor: it.danger ? colors.dangerSoft : colors.cardAlt }}>
+          <Touch key={i} onPress={() => { close(); setTimeout(it.onPress, 0); }} className={MENU_ITEM} hoverStyle={{ backgroundColor: it.danger ? colors.dangerSoft : colors.cardAlt }}>
             {it.icon ? <it.icon size={15} color={it.danger ? colors.danger : colors.textSoft} strokeWidth={1.8} /> : null}
             <T size={13} color={it.danger ? colors.danger : colors.text} weight="medium">{it.label}</T>
           </Touch>
@@ -409,7 +414,7 @@ export function Tabs<V extends string>({ tabs, value, onChange, style }: { tabs:
       {tabs.map((t) => {
         const active = t.value === value;
         return (
-          <Pressable key={t.value} onPress={() => onChange(t.value)} style={{ paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: active ? colors.primary : 'transparent', flexDirection: 'row', alignItems: 'center', marginBottom: -1 }}>
+          <Pressable key={t.value} onPress={() => onChange(t.value)} className={`flex-row items-center py-11 border-b-2 -mb-1 ${active ? 'border-b-primary' : 'border-b-transparent'}`}>
             <T size={13} weight={active ? 'semibold' : 'medium'} color={active ? colors.text : colors.subtext}>{t.label}</T>
             {t.count !== undefined ? <CountPill n={t.count} active={active} /> : null}
           </Pressable>
@@ -421,11 +426,11 @@ export function Tabs<V extends string>({ tabs, value, onChange, style }: { tabs:
 
 export function Segmented<V extends string>({ options, value, onChange, size = 'md' }: { options: { value: V; label: string; icon?: LucideIcon; count?: number }[]; value: V; onChange: (v: V) => void; size?: 'sm' | 'md' }) {
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: colors.neutralSoft, borderRadius: radius.md, padding: 3, alignSelf: 'flex-start', flexWrap: 'wrap' }}>
+    <View className="flex-row flex-wrap self-start bg-neutral-soft rounded-md p-3">
       {options.map((o) => {
         const active = o.value === value;
         return (
-          <Pressable key={o.value} onPress={() => onChange(o.value)} style={[{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: size === 'sm' ? 10 : 13, height: size === 'sm' ? 28 : 32, borderRadius: radius.sm }, active && { backgroundColor: colors.card, ...shadow.card }]}>
+          <Pressable key={o.value} onPress={() => onChange(o.value)} className={`flex-row items-center gap-6 rounded-sm ${size === 'sm' ? 'px-10 h-28' : 'px-13 h-32'} ${active ? 'bg-card' : ''}`} style={active ? shadow.card : undefined}>
             {o.icon ? <o.icon size={14} color={active ? colors.text : colors.subtext} /> : null}
             <T size={12.5} weight={active ? 'semibold' : 'medium'} color={active ? colors.text : colors.subtext}>{o.label}</T>
             {o.count !== undefined ? <T size={11} weight="semibold" color={colors.subtext}>{o.count}</T> : null}
@@ -438,7 +443,7 @@ export function Segmented<V extends string>({ options, value, onChange, size = '
 
 export function Chip({ label, active, onPress, icon: Icon }: { label: string; active?: boolean; onPress?: () => void; icon?: LucideIcon }) {
   return (
-    <Touch onPress={onPress} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, height: 30, borderRadius: radius.full, borderWidth: 1, borderColor: active ? colors.primary : colors.border, backgroundColor: active ? colors.primarySoft : colors.card }} hoverStyle={{ borderColor: active ? colors.primary : colors.borderStrong }}>
+    <Touch onPress={onPress} className={`flex-row items-center gap-5 px-11 h-30 rounded-full border ${active ? 'border-primary bg-primary-soft' : 'border-border bg-card'}`} hoverStyle={{ borderColor: active ? colors.primary : colors.borderStrong }}>
       {Icon ? <Icon size={13} color={active ? colors.primary : colors.subtext} /> : active ? <Check size={12} color={colors.primary} strokeWidth={2.6} /> : null}
       <T size={12} weight={active ? 'semibold' : 'medium'} color={active ? colors.primary : colors.textSoft}>{label}</T>
     </Touch>
@@ -468,10 +473,10 @@ export function SegmentBar({ segments, height = 8, style }: { segments: { value:
 
 export function Legend({ items, style }: { items: { label: string; color: string; value?: string | number }[]; style?: StyleProp<ViewStyle> }) {
   return (
-    <View style={[{ flexDirection: 'row', flexWrap: 'wrap', gap: 14 }, style]}>
+    <View className="flex-row flex-wrap gap-14" style={style}>
       {items.map((i) => (
-        <View key={i.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <View style={{ width: 9, height: 9, borderRadius: 2.5, backgroundColor: i.color }} />
+        <View key={i.label} className="flex-row items-center gap-6">
+          <View className="w-9 h-9 rounded-[2.5px]" style={{ backgroundColor: i.color }} />
           <T size={12} color={colors.subtext}>{i.label}{i.value !== undefined ? <T size={12} weight="semibold" color={colors.text}>  {i.value}</T> : null}</T>
         </View>
       ))}
@@ -504,13 +509,13 @@ export function Grid({ cols, gap = 16, children, spans, style }: { cols: { mobil
   );
 }
 
-export function Row({ children, gap = 10, style, wrap, align = 'center', justify }: { children: React.ReactNode; gap?: number; style?: StyleProp<ViewStyle>; wrap?: boolean; align?: ViewStyle['alignItems']; justify?: ViewStyle['justifyContent'] }) {
-  return <View style={[{ flexDirection: 'row', alignItems: align, gap, flexWrap: wrap ? 'wrap' : 'nowrap', justifyContent: justify }, style]}>{children}</View>;
+export function Row({ children, gap = 10, style, wrap, align = 'center', justify, className = '' }: { children: React.ReactNode; gap?: number; style?: StyleProp<ViewStyle>; wrap?: boolean; align?: ViewStyle['alignItems']; justify?: ViewStyle['justifyContent']; className?: string }) {
+  return <View className={`flex-row ${wrap ? 'flex-wrap' : 'flex-nowrap'} ${className}`} style={[{ alignItems: align, gap, justifyContent: justify }, style]}>{children}</View>;
 }
 
 export function KV({ label, value, children, style, valueColor }: { label: string; value?: React.ReactNode; children?: React.ReactNode; style?: StyleProp<ViewStyle>; valueColor?: string }) {
   return (
-    <View style={[{ gap: 3, minWidth: 90 }, style]}>
+    <View className="gap-3 min-w-90" style={style}>
       <T size={11.5} color={colors.subtext}>{label}</T>
       {children ?? (typeof value === 'string' || typeof value === 'number' ? <T size={13.5} weight="semibold" color={valueColor}>{value}</T> : value)}
     </View>
@@ -519,7 +524,7 @@ export function KV({ label, value, children, style, valueColor }: { label: strin
 
 export function EmptyState({ icon: Icon, title, body, action }: { icon: LucideIcon; title: string; body?: string; action?: React.ReactNode }) {
   return (
-    <View style={{ alignItems: 'center', paddingVertical: 36, paddingHorizontal: 20, gap: 8 }}>
+    <View className="items-center py-36 px-20 gap-8">
       <IconTile icon={Icon} tone="neutral" size={44} />
       <T size={14.5} weight="semibold" style={{ marginTop: 4 }}>{title}</T>
       {body ? <T size={12.5} color={colors.subtext} center style={{ maxWidth: 360 }}>{body}</T> : null}
@@ -535,7 +540,7 @@ export function Notice({ tone = 'info', icon, children, title, action, style }: 
   const { isMobile } = useBreakpoint();
   const stacked = isMobile && !!action;
   return (
-    <View style={[{ flexDirection: 'row', alignItems: stacked ? 'flex-start' : 'center', gap: 10, backgroundColor: bg, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 11, borderWidth: 1, borderColor: fg + '26' }, style]}>
+    <View className={`flex-row gap-10 rounded-md px-14 py-11 border ${stacked ? 'items-start' : 'items-center'}`} style={[{ backgroundColor: bg, borderColor: fg + '26' }, style]}>
       <Icon size={16} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
       <View style={{ flex: 1 }}>
         {title ? <T size={13} weight="semibold" color={tone === 'info' ? colors.text : fg}>{title}</T> : null}
@@ -557,15 +562,15 @@ export function Dialog({ open, onClose, title, subtitle, children, footer, width
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: colors.overlay, justifyContent: isMobile ? 'flex-end' : 'center', alignItems: 'center', padding: isMobile ? 0 : 24 }}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
         <View style={[styles.dialog, isMobile ? { width: '100%', borderBottomLeftRadius: 0, borderBottomRightRadius: 0, maxHeight: height * 0.92 } : { width, maxHeight: height - 48 }]}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-start', padding: 20, paddingBottom: 12, gap: 12 }}>
-            <View style={{ flex: 1 }}>
+          <View className="flex-row items-start p-20 pb-12 gap-12">
+            <View className="flex-1">
               <T size={16.5} weight="semibold">{title}</T>
               {subtitle ? <T size={12.5} color={colors.subtext} style={{ marginTop: 2 }}>{subtitle}</T> : null}
             </View>
             <IconButton icon={X} onPress={onClose} size={32} accessibilityLabel="Close" />
           </View>
           <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 20 + (isMobile && !footer ? insets.bottom : 0) }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
-          {footer ? <View style={{ flexDirection: 'row', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 10, padding: 16, paddingBottom: 16 + (isMobile ? insets.bottom : 0), borderTopWidth: 1, borderTopColor: colors.border }}>{footer}</View> : null}
+          {footer ? <View className="flex-row justify-end flex-wrap gap-10 p-16 border-t border-t-border" style={{ paddingBottom: 16 + (isMobile ? insets.bottom : 0) }}>{footer}</View> : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -612,7 +617,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {children}
       <View pointerEvents="box-none" style={{ position: 'absolute', bottom: 24, left: 0, right: 0, alignItems: 'center', gap: 8 }}>
         {items.map((t) => (
-          <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.sidebar, borderRadius: radius.md, paddingHorizontal: 16, paddingVertical: 12, maxWidth: 480, marginHorizontal: 16, ...shadow.pop }}>
+          <View key={t.id} className="flex-row items-center gap-10 bg-sidebar rounded-md px-16 py-12 max-w-480 mx-16" style={shadow.pop}>
             {t.tone === 'danger' ? <TriangleAlert size={16} color="#F4A49B" /> : <CircleCheck size={16} color={t.tone === 'info' ? '#9DC3F7' : '#8FD3B0'} />}
             <T size={13} weight="medium" color={colors.white} style={{ flexShrink: 1 }}>{t.text}</T>
           </View>
@@ -624,11 +629,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
 export const useToast = () => useContext(ToastCtx);
 
+const MENU_ITEM = 'flex-row items-center gap-10 px-14 py-9';
+
 const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, ...shadow.card },
   input: { height: 42, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.inputBg, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
   inputFocus: { borderColor: colors.primary, ...(Platform.OS === 'web' ? ({ boxShadow: `0 0 0 3px ${colors.primarySoft}` } as any) : {}) },
   popover: { position: 'absolute', backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, paddingVertical: 5, ...shadow.pop },
-  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 9 },
   dialog: { backgroundColor: colors.card, borderRadius: radius.xl, overflow: 'hidden', ...shadow.pop },
 });

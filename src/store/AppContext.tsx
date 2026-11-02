@@ -5,7 +5,7 @@ import type {
   MaintenanceRequest, OnboardingDraft, PaystackStatus, Priority, Property, Role, Settings,
   Tenant, Unit, User, Vendor,
 } from '../types';
-import { supabase, createSignupClient } from '../lib/supabase';
+import { supabase, createSignupClient, isSupabaseConfigured } from '../lib/supabase';
 import { deviceLabel, emptyState, loadAll, loadNotifications, loadPayments, loadRequest, loadRequests, nextCode, pushChanges, rpc } from '../lib/db';
 import { checkPayment as confirmPayment, openCheckout } from '../lib/payments';
 import { TRANSITION_TO, type Transition } from '../lib/workflow';
@@ -134,6 +134,8 @@ const Ctx = createContext<Store | null>(null);
 
 /** Supabase auth messages, in the app's voice. */
 function authError(message: string): string {
+  // Without .env.local the client points at localhost, which looks like a network failure.
+  if (!isSupabaseConfigured) return 'This copy of the app isn’t connected to a server yet. Copy .env.example to .env.local, fill in the Supabase URL and publishable key, then restart with npx expo start -c.';
   const m = message.toLowerCase();
   if (m.includes('invalid login credentials')) return 'That email and password don’t match. Try again or reset your password.';
   if (m.includes('email') && m.includes('invalid')) return 'The email provider rejected this address. Use a real email address. For demo accounts, use password sign-in rather than an emailed code.';

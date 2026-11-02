@@ -12,6 +12,7 @@ import {
   Avatar, Badge, Button, Card, CardHeader, Dialog, EmptyState, Grid, IconTile, Input, KV, Link, Notice, ProgressBar, Row, Segmented, Select, Sheet,
   T, Touch, useToast, Divider,
 } from '../../components/ui';
+import { PropertyThumb } from '../../components/art';
 import { DataTable, FileRow, RequestStatusBadge, UNIT_STATUS, UnitBadge } from '../../components/data';
 import { UploadDocumentDialog, useOpenDocument } from '../../components/files';
 import { usePropertyStats } from '../../lib/stats';
@@ -102,7 +103,7 @@ export function LocationsScreen() {
               <T size={12} weight="semibold" color={colors.subtext}>Properties in this location</T>
               {locStats(sel.id).ps.map((s) => (
                 <Touch key={s.property.id} onPress={() => navigate('property', { id: s.property.id })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: 10 }} hoverStyle={{ backgroundColor: colors.cardAlt }}>
-                  <View style={{ width: 30, height: 30, borderRadius: 7, backgroundColor: s.property.art.bg, alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden' }}><View style={{ width: 14, height: 20, backgroundColor: s.property.art.a }} /></View>
+                  <PropertyThumb property={s.property} />
                   <View style={{ flex: 1 }}><T size={13} weight="semibold">{s.property.name}</T><T size={11.5} color={colors.subtext}>{s.blocks} blocks · {s.total} units · {pct(s.occupied, s.total)}</T></View>
                   <ChevronRight size={16} color={colors.subtext} />
                 </Touch>

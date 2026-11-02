@@ -1,6 +1,30 @@
 import React from 'react';
 import { View } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Circle, G, Rect } from 'react-native-svg';
+import { propertyPhotos } from '../data/propertyPhotos';
+import type { Property } from '../types';
+
+/** The property's photo when the app has one, otherwise the building illustration in its colours. */
+export function PropertyPhoto({ property: p, height = 130, index = 0 }: { property: Property; height?: number; index?: number }) {
+  const photos = propertyPhotos(p.id);
+  if (!photos.length) return <BuildingArt bg={p.art.bg} a={p.art.a} b={p.art.b} height={height} />;
+  return (
+    <Image source={photos[index % photos.length]} style={{ height, width: '100%', backgroundColor: p.art.bg }}
+      contentFit="cover" transition={150} alt={`Photo of ${p.name}`} />
+  );
+}
+
+/** Small square version for lists and headers. */
+export function PropertyThumb({ property: p, size = 30, rounded = 7 }: { property: Property; size?: number; rounded?: number }) {
+  const photo = propertyPhotos(p.id)[0];
+  if (photo) return <Image source={photo} style={{ width: size, height: size, borderRadius: rounded, backgroundColor: p.art.bg }} contentFit="cover" alt="" />;
+  return (
+    <View style={{ width: size, height: size, borderRadius: rounded, backgroundColor: p.art.bg, alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden' }}>
+      <View style={{ width: size * 0.47, height: size * 0.67, backgroundColor: p.art.a }} />
+    </View>
+  );
+}
 
 /** Two-building illustration used on property cards and headers. */
 export function BuildingArt({ bg, a, b, height = 130, width = 320 }: { bg: string; a: string; b: string; height?: number; width?: number }) {

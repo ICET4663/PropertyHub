@@ -1,4 +1,5 @@
 import 'react-native-gesture-handler';
+import '../../global.css';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Platform, View } from 'react-native';
 import { Stack } from 'expo-router';

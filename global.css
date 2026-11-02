@@ -1,0 +1,94 @@
+/*
+ * Tailwind (NativeWind v5) for PropertyHub.
+ *
+ * The theme below mirrors src/theme.ts, so a class gives exactly the value the old style object used:
+ *   style={{ backgroundColor: colors.primary }}  ->  className="bg-primary"
+ *   style={{ borderRadius: radius.lg }}          ->  className="rounded-lg"
+ *   style={{ padding: 16, gap: 10 }}             ->  className="p-16 gap-10"
+ * Spacing is 1 unit = 1px (not Tailwind's usual 4px) so the numbers match the old styles one to one,
+ * and so phones (where 1rem is 14px) and the web (16px) agree.
+ * If you change a value here, change it in src/theme.ts too: charts, icons and SVGs still read from there.
+ *
+ * Tailwind's preflight reset is left out on purpose: React Native Web already resets its elements, and
+ * preflight would change the look of every screen that still uses style objects.
+ */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css";
+@import "nativewind/theme";
+
+@theme {
+  --spacing: 1px;
+
+  /* breakpoints, same as useBreakpoint(): tablet >= 720, desktop >= 1100 */
+  --breakpoint-tablet: 720px;
+  --breakpoint-desktop: 1100px;
+
+  /* chrome */
+  --color-sidebar: #0F2A23;
+  --color-sidebar-raised: #173A30;
+  --color-sidebar-border: #1F4538;
+  --color-sidebar-text: #C9D6D0;
+  --color-sidebar-muted: #7F998F;
+
+  /* canvas & surfaces */
+  --color-bg: #F3F2ED;
+  --color-card: #FFFFFF;
+  --color-card-alt: #FAF9F5;
+  --color-border: #E7E4DC;
+  --color-border-strong: #D6D2C7;
+  --color-input-bg: #FFFFFF;
+
+  /* text */
+  --color-text: #14231E;
+  --color-text-soft: #3B4A44;
+  --color-subtext: #6E7A74;
+  --color-faint: #9AA39E;
+
+  /* brand */
+  --color-primary: #1F5C4A;
+  --color-primary-hover: #184B3C;
+  --color-primary-soft: #E3EEE8;
+  --color-primary-tint: #F0F6F2;
+  --color-accent: #E8B04B;
+  --color-accent-deep: #B7801F;
+  --color-accent-soft: #FBF1DD;
+
+  /* semantic */
+  --color-success: #1F7A55;
+  --color-success-soft: #E1F2E9;
+  --color-danger: #D4483B;
+  --color-danger-deep: #A92E23;
+  --color-danger-soft: #FBE7E4;
+  --color-warning: #C9851A;
+  --color-warning-soft: #FCF0DA;
+  --color-info: #3A6FD8;
+  --color-info-soft: #E6EEFC;
+  --color-purple: #6F55C8;
+  --color-purple-soft: #EEEAFB;
+  --color-neutral-soft: #EFEEEA;
+
+  /* data viz */
+  --color-viz-occupied: #1F5C4A;
+  --color-viz-vacant: #4C7FE0;
+  --color-viz-maint: #E0A526;
+  --color-viz-sage: #9DB5AA;
+  --color-viz-bronze: #C68D2E;
+
+  --color-overlay: rgba(15, 42, 35, 0.45);
+  --color-white: #FFFFFF;
+
+  /* corner radius */
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-full: 999px;
+
+  /* Plus Jakarta Sans is loaded as one family per weight, so each weight is its own font class */
+  --font-regular: PlusJakartaSans_400Regular;
+  --font-medium: PlusJakartaSans_500Medium;
+  --font-semibold: PlusJakartaSans_600SemiBold;
+  --font-bold: PlusJakartaSans_700Bold;
+  --font-extrabold: PlusJakartaSans_800ExtraBold;
+}

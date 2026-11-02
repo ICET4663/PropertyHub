@@ -6,6 +6,11 @@
  * Needs EXPO_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY in .env.local. The secret key bypasses
  * row level security, so it is only ever read here — never prefix it with EXPO_PUBLIC_.
  * Safe to re-run: rows are upserted and existing demo logins are reused.
+ *
+ *   npm run db:seed -- --add-only
+ *
+ * Only inserts rows that are missing (for example new demo locations) and leaves every existing row as
+ * it is, so changes made in the app (roles, request progress, payments) are kept.
  */
 import { createClient } from '@supabase/supabase-js';
 import { buildSeed } from '../src/data/seed';
@@ -20,6 +25,7 @@ if (!url || !secretKey) {
 
 const db = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const DEMO_PASSWORD = 'demo1234';
+const ADD_ONLY = process.argv.includes('--add-only');
 
 // camelCase fields -> snake_case columns, with the few renames the schema needed (reserved words).
 const RENAMES: Record<string, string> = { where: 'room', start: 'start_date', end: 'end_date', by: 'by_name', user: 'user_name', id_: 'id_details' };
@@ -33,10 +39,10 @@ function toRow(obj: object, omit: string[] = []): Record<string, unknown> {
   return row;
 }
 
-async function upsert(table: string, rows: Record<string, unknown>[], onConflict = 'id') {
+async function upsert(table: string, rows: Record<string, unknown>[], onConflict = 'id', { overwrite = false } = {}) {
   for (let i = 0; i < rows.length; i += 500) {
     // defaultToNull: false -> fields a row leaves out get the column default, not null
-    const { error } = await db.from(table).upsert(rows.slice(i, i + 500), { onConflict, defaultToNull: false });
+    const { error } = await db.from(table).upsert(rows.slice(i, i + 500), { onConflict, defaultToNull: false, ignoreDuplicates: ADD_ONLY && !overwrite });
     if (error) throw new Error(`${table}: ${error.message}`);
   }
   console.log(`  ${table.padEnd(22)} ${rows.length}`);
@@ -51,19 +57,19 @@ async function findAuthUserByEmail(email: string) {
   }
 }
 
-async function ensureLogin(u: Pick<User, 'name' | 'email' | 'phone'>): Promise<string> {
+async function ensureLogin(u: Pick<User, 'name' | 'email' | 'phone'>): Promise<{ id: string; created: boolean }> {
   const { data, error } = await db.auth.admin.createUser({
     email: u.email, password: DEMO_PASSWORD, email_confirm: true, user_metadata: { name: u.name, phone: u.phone },
   });
-  if (data.user) return data.user.id;
+  if (data.user) return { id: data.user.id, created: true };
   const existing = await findAuthUserByEmail(u.email);
   if (!existing) throw new Error(`Could not create login for ${u.email}: ${error?.message}`);
-  return existing.id;
+  return { id: existing.id, created: false };
 }
 
 async function main() {
   const s = buildSeed();
-  console.log(`Seeding ${url}`);
+  console.log(`Seeding ${url}${ADD_ONLY ? ' (add only: existing rows are left as they are)' : ''}`);
 
   // ---- logins: every staff user, plus the tenant demo account shown on the sign-in screen
   const demoTenant = s.tenants.find((t) => t.email === 'chidinma.okafor@mail.com')!;
@@ -72,16 +78,24 @@ async function main() {
     { id: 'u-chidinma', name: demoTenant.name, email: demoTenant.email, phone: demoTenant.phone, role: 'tenant', access: 'Own tenancy', tenantId: demoTenant.id, twoStep: false, lastActive: new Date().toISOString(), status: 'active' },
   ];
   const authId: Record<string, string> = {};
-  for (const u of people) authId[u.id] = await ensureLogin(u);
-  console.log(`  ${'auth logins'.padEnd(22)} ${people.length}`);
+  const newLogins = new Set<string>();
+  for (const u of people) {
+    const login = await ensureLogin(u);
+    authId[u.id] = login.id;
+    if (login.created) newLogins.add(u.id);
+  }
+  console.log(`  ${'auth logins'.padEnd(22)} ${people.length} (${newLogins.size} new)`);
   const uuid = (legacy: string) => authId[legacy] ?? null;
 
   // ---- order matters: parents before children
-  await upsert('profiles', people.map((u) => ({
+  // A new login already has a bare profile (made by the sign-up trigger), so in add-only mode those
+  // profiles are written in full and every other profile is left alone.
+  const profileRows = (ADD_ONLY ? people.filter((u) => newLogins.has(u.id)) : people).map((u) => ({
     id: authId[u.id], legacy_id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role, access: u.access,
     // Demo inboxes cannot receive verification emails.
     two_step: false, last_active: u.lastActive, status: u.status, tenant_id: null,
-  })));
+  }));
+  await upsert('profiles', profileRows, 'id', { overwrite: true });
   await upsert('locations', s.locations.map((l) => ({ ...toRow(l, ['managerId']), manager_id: uuid(l.managerId) })));
   await upsert('properties', s.properties.map((p) => ({ ...toRow(p, ['managerId']), manager_id: uuid(p.managerId) })));
   await upsert('profile_properties', s.users.flatMap((u) => (u.propertyIds ?? []).map((pid) => ({ profile_id: authId[u.id], property_id: pid }))), 'profile_id,property_id');

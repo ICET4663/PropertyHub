@@ -13,6 +13,7 @@ import {
   Avatar, Badge, Button, CallButton, Card, CardHeader, Checkbox, EmptyState, Grid, IconTile, Input, KV, Link, Notice, ProgressBar, Row, Select, T, Tabs, Toggle, Touch, useToast, Divider,
 } from '../../components/ui';
 import { AccountSecurityCard } from '../../components/account';
+import { PropertyThumb } from '../../components/art';
 import { FileRow, PRIORITY, RequestStatusBadge } from '../../components/data';
 import { PhotoPicker, RequestPhotos, usePick, useOpenDocument } from '../../components/files';
 import { TRANSITION_LABEL, TransitionDialog } from '../../components/requests';
@@ -75,10 +76,13 @@ export function TenantHomeScreen() {
       <View style={{ backgroundColor: colors.sidebar, borderRadius: radius.xl, padding: bp === 'mobile' ? 20 : 26, marginBottom: 16, overflow: 'hidden' }}>
         <View style={{ position: 'absolute', right: -30, top: -40, width: 180, height: 180, borderRadius: 90, backgroundColor: colors.accent, opacity: 0.07 }} />
         <View style={{ flexDirection: bp === 'mobile' ? 'column' : 'row', justifyContent: 'space-between', alignItems: bp === 'mobile' ? 'flex-start' : 'center', gap: 16 }}>
-          <View>
-            <T size={13} color={colors.sidebarText}>{greeting()},</T>
-            <T size={26} weight="bold" color={colors.white} style={{ letterSpacing: -0.5 }}>{t.name.split(' ')[0]}</T>
-            <T size={12.5} color={colors.sidebarMuted} style={{ marginTop: 4 }}>{prop ? `${prop.name} · ${block?.name} · Flat ${unit?.code} · ${location?.name}` : 'Your home will appear here once your tenancy is confirmed.'}</T>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 1 }}>
+            {prop ? <PropertyThumb property={prop} size={bp === 'mobile' ? 64 : 76} rounded={radius.lg} /> : null}
+            <View style={{ flexShrink: 1 }}>
+              <T size={13} color={colors.sidebarText}>{greeting()},</T>
+              <T size={26} weight="bold" color={colors.white} style={{ letterSpacing: -0.5 }}>{t.name.split(' ')[0]}</T>
+              <T size={12.5} color={colors.sidebarMuted} style={{ marginTop: 4 }}>{prop ? `${prop.name} · ${block?.name} · Flat ${unit?.code} · ${location?.name}` : 'Your home will appear here once your tenancy is confirmed.'}</T>
+            </View>
           </View>
           <Row gap={10}>
             <Button title="Report an issue" icon={Plus} variant="accent" onPress={() => navigate('reportIssue')} disabled={t.status !== 'active'} />
