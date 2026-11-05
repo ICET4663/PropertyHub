@@ -7,7 +7,7 @@ import {
   CircleHelp, Phone, BookOpen, LifeBuoy, RotateCcw,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
-import { useLookup, useScope, useStore, type AuthResult, type CreateUserInput } from '../../store/AppContext';
+import { useLookup, useScope, useStore, type AuthResult, type CreateUserInput, type CreateUserResult } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader, roleLabel } from '../../components/shell';
 import {
@@ -17,6 +17,7 @@ import {
 import type { Tone } from '../../components/ui';
 import { DataTable, FileIcon, Pagination, usePaged } from '../../components/data';
 import { UploadDocumentDialog, useOpenDocument } from '../../components/files';
+import { ShareCredentialsDialog, PasswordField, generatePassword, passwordOk, type Credentials } from '../../components/credentials';
 import { TrackBars } from '../../components/charts';
 import { usePortfolio, usePropertyStats } from '../../lib/stats';
 import { downloadCSV, printPage } from '../../lib/export';
@@ -541,7 +542,7 @@ export function UsersScreen() {
       {confirm.node}
       <InviteDialog open={inviteOpen} onClose={() => setInviteOpen(false)} onCreate={async (u) => {
         const result = await createUser(u);
-        if (result.ok) { toast('Account created. The user must confirm their email if required by your authentication settings.', 'success'); setInviteOpen(false); }
+        if (result.ok) toast('Account created', 'success');
         return result;
       }} />
       {editingUser ? <RoleDialog user={editingUser} onClose={() => setEditingUser(null)} onSave={async (role, ids, access) => {
@@ -560,33 +561,59 @@ function accessLabel(role: Role, ids: string[], properties: { id: string; name: 
   return properties.filter((p) => ids.includes(p.id)).map((p) => p.name).join(', ') || 'None yet';
 }
 
-function InviteDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (u: CreateUserInput) => Promise<AuthResult> }) {
+type AccountKind = 'manager' | 'tenant' | 'other';
+const OTHER_ROLES: Role[] = ['caretaker', 'accountant', 'super_admin'];
+
+function InviteDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (u: CreateUserInput) => Promise<CreateUserResult> }) {
   const { state } = useStore();
+  const [kind, setKind] = useState<AccountKind>('manager');
+  const [otherRole, setOtherRole] = useState<Role>('caretaker');
+  const [tenantId, setTenantId] = useState('');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [role, setRole] = useState<Role>('manager');
+  const [phone, setPhone] = useState('');
+  const [password, setPassword] = useState(generatePassword);
   const [ids, setIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const valid = !!name.trim() && /^\S+@\S+\.\S+$/.test(email.trim()) && password.length >= 8 && /\d/.test(password) && /[^A-Za-z0-9]/.test(password);
+  const [creds, setCreds] = useState<Credentials | null>(null);
+  const role: Role = kind === 'other' ? otherRole : kind;
+  // Tenant records that don't have a sign-in yet.
+  const linked = new Set(state.users.map((u) => u.tenantId).filter(Boolean));
+  const openTenants = state.tenants.filter((t) => !linked.has(t.id) && t.status !== 'former' && t.status !== 'deactivated');
+  const chooseTenant = (id: string) => {
+    setTenantId(id);
+    const t = state.tenants.find((x) => x.id === id);
+    if (t) { setName(t.name); setEmail(t.email); setPhone(t.whatsapp || t.phone); }
+  };
+  const reset = () => { setName(''); setEmail(''); setPhone(''); setIds([]); setTenantId(''); setPassword(generatePassword()); setError(''); };
+  const valid = !!name.trim() && /^\S+@\S+\.\S+$/.test(email.trim()) && passwordOk(password);
   const submit = async () => {
     setLoading(true); setError('');
     try {
-      const result = await onCreate({ name: name.trim(), email: email.trim(), password, role, access: accessLabel(role, ids, state.properties), propertyIds: ids });
+      const result = await onCreate({ name: name.trim(), email: email.trim(), phone: phone.trim(), password, role, access: accessLabel(role, ids, state.properties), propertyIds: ids, tenantId: kind === 'tenant' && tenantId ? tenantId : undefined });
       if (!result.ok) setError(result.error);
-      else { setName(''); setEmail(''); setPassword(''); setIds([]); }
+      else { setCreds({ name: name.trim(), email: email.trim().toLowerCase(), password, phone: phone.trim(), roleLabel: roleLabel(role), needsConfirmation: result.needsConfirmation }); reset(); }
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setLoading(false); }
   };
+  if (creds) return <ShareCredentialsDialog creds={creds} onClose={() => { setCreds(null); onClose(); }} />;
   return (
-    <Dialog open={open} onClose={() => { if (!loading) onClose(); }} title="Create a user account" footer={<><Button title="Cancel" variant="secondary" disabled={loading} onPress={onClose} /><Button title="Create account" loading={loading} disabled={!valid || loading} onPress={submit} /></>}>
+    <Dialog open={open} onClose={() => { if (!loading) onClose(); }} title="Create an account" subtitle="You'll get a username and password to share by WhatsApp or email." footer={<><Button title="Cancel" variant="secondary" disabled={loading} onPress={onClose} /><Button title="Create account" loading={loading} disabled={!valid || loading} onPress={submit} /></>}>
       <View style={{ gap: 14 }}>
-        <Notice tone="info">Use a real email address. The user confirms their email before signing in when email confirmation is enabled. Existing users can be assigned a role from All accounts.</Notice>
+        <View style={{ gap: 8 }}>
+          <T size={12.5} weight="semibold">Account type</T>
+          <Segmented<AccountKind> value={kind} onChange={(k) => { setKind(k); setError(''); if (k !== 'tenant') setTenantId(''); }} options={[{ value: 'manager', label: 'Property manager', icon: Building2 }, { value: 'tenant', label: 'Tenant', icon: Users }, { value: 'other', label: 'Other staff', icon: UserPlus }]} />
+        </View>
+        {kind === 'other' ? <Select label="Role" required value={otherRole} onChange={setOtherRole} options={OTHER_ROLES.map((r) => ({ value: r, label: roleLabel(r) }))} /> : null}
+        {kind === 'tenant' ? (
+          <Select label="Tenant record" optional value={tenantId} onChange={chooseTenant} placeholder={openTenants.length ? 'Choose a tenant without a login' : 'No tenants without a login'}
+            options={openTenants.map((t) => ({ value: t.id, label: `${t.name} · ${t.code}` }))} hint="Links the login to their tenancy. Leave empty and the tenant is matched by email when they first sign in." />
+        ) : null}
         <Input label="Full name" required value={name} onChangeText={setName} />
-        <Input label="Email address" required value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-        <Input label="Initial password" required value={password} onChangeText={setPassword} secure hint="At least 8 characters with a number and a symbol. Share this securely with the user." />
-        <Select label="Role" required value={role} onChange={setRole} options={(['super_admin', 'manager', 'accountant', 'caretaker', 'tenant'] as Role[]).map((r) => ({ value: r, label: roleLabel(r) }))} />
+        <Input label="Email address (username)" required value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+        <Input label="Phone / WhatsApp" optional value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="e.g. 0803 123 4567" hint="Used to send the sign-in details on WhatsApp." />
+        <PasswordField value={password} onChange={setPassword} />
         <PropertyAccess role={role} ids={ids} onChange={setIds} />
         {error ? <Notice tone="danger">{error}</Notice> : null}
       </View>

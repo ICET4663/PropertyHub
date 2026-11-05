@@ -2,12 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import {
-  ArrowLeftRight, Camera, Check, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
+  ArrowLeftRight, Camera, KeyRound, Check, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
   ShieldCheck, Upload, UserMinus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
 import { useLookup, useScope, useStore, type OnboardingFiles } from '../../store/AppContext';
 import { FileSlot, UploadDocumentDialog, useOpenDocument } from '../../components/files';
+import { CreateTenantLoginDialog } from '../../components/credentials';
 import { ACCEPT, DOC_TYPES, ID_TYPES, checkFile, pickPhotos, type PickedFile } from '../../lib/files';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader, StickyFooter } from '../../components/shell';
@@ -39,7 +40,9 @@ export function TenantsScreen() {
   const [onb, setOnb] = useState('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveFor, setMoveFor] = useState<Tenant | null>(null);
+  const [loginFor, setLoginFor] = useState<Tenant | null>(null);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
+  const hasLogin = useMemo(() => new Set(state.users.map((u) => u.tenantId).filter(Boolean)), [state.users]);
 
   const withLease = useMemo(() => scope.tenants.map((t) => {
     const l = lookup.currentLease(t.id);
@@ -143,6 +146,7 @@ export function TenantsScreen() {
                     ...(x.t.status === 'pending' ? [{ label: 'Approve tenant', icon: ShieldCheck, onPress: () => { approveTenant(x.t.id); toast(`${x.t.name} approved and lease activated`); } }] : []),
                     { label: 'Edit', icon: Pencil, onPress: () => navigate('tenant', { id: x.t.id, edit: '1' }) },
                     { label: 'Message', icon: MessageSquare, onPress: () => messageTenant(x.t.id) },
+                    ...(!hasLogin.has(x.t.id) && x.t.status !== 'former' && x.t.status !== 'deactivated' ? [{ label: 'Create login', icon: KeyRound, onPress: () => setLoginFor(x.t) }] : []),
                     ...(x.l ? [{ label: 'Renew lease', icon: RefreshCw, onPress: () => navigate('renew', { id: x.l!.id }) }] : []),
                     ...(x.t.status === 'active' ? [{ label: 'Move tenant', icon: ArrowLeftRight, onPress: () => setMoveFor(x.t) }] : []),
                     ...(x.t.status === 'active' || x.t.status === 'pending' ? [{ label: 'Deactivate', icon: UserMinus, danger: true, onPress: () => confirm.ask({ title: `Deactivate ${x.t.name}?`, body: 'Their lease will be ended, the unit marked vacant and portal access removed. Records are kept for your history.', confirm: 'Deactivate', danger: true, onConfirm: () => { deactivateTenant(x.t.id); toast(`${x.t.name} deactivated`); } }) }] : []),
@@ -155,6 +159,7 @@ export function TenantsScreen() {
       </Card>
       {confirm.node}
       <MoveTenantDialog tenant={moveFor} onClose={() => setMoveFor(null)} />
+      <CreateTenantLoginDialog tenant={loginFor} onClose={() => setLoginFor(null)} />
     </Page>
   );
 }
@@ -191,6 +196,7 @@ export function TenantProfileScreen({ id }: { id: string }) {
   const [tab, setTab] = useState('overview');
   const [editOpen, setEditOpen] = useState(route.params.edit === '1');
   const [moveOpen, setMoveOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const t = state.tenants.find((x) => x.id === id);
   const [form, setForm] = useState({ name: t?.name ?? '', email: t?.email ?? '', phone: t?.phone ?? '', address: t?.address ?? '', kinName: t?.nextOfKin.name ?? '', kinPhone: t?.nextOfKin.phone ?? '', kinRel: t?.nextOfKin.relationship ?? '' });
@@ -369,6 +375,7 @@ export function TenantProfileScreen({ id }: { id: string }) {
               {t.status === 'pending' ? <Button title="Approve tenant" icon={ShieldCheck} size="sm" onPress={() => { approveTenant(t.id); toast(`${t.name} approved — lease is now active`); }} /> : null}
               <Button title="Edit" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
               <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => messageTenant(t.id)} />
+              {!state.users.some((u) => u.tenantId === t.id) && t.status !== 'former' && t.status !== 'deactivated' ? <Button title="Create login" icon={KeyRound} size="sm" variant="secondary" onPress={() => setLoginOpen(true)} /> : null}
               {t.status === 'active' ? <Button title="Move tenant" icon={ArrowLeftRight} size="sm" variant="secondary" onPress={() => setMoveOpen(true)} /> : null}
               {lease ? <Button title="Renew lease" icon={RefreshCw} size="sm" onPress={() => navigate('renew', { id: lease.id })} /> : null}
               {t.status === 'active' || t.status === 'pending' ? <Button icon={UserMinus} size="sm" variant="dangerGhost" onPress={() => confirm.ask({ title: `Deactivate ${t.name}?`, body: 'Their lease will be ended, the unit marked vacant and portal access removed.', confirm: 'Deactivate', danger: true, onConfirm: () => { deactivateTenant(t.id); toast(`${t.name} deactivated`); } })} /> : null}
@@ -383,6 +390,7 @@ export function TenantProfileScreen({ id }: { id: string }) {
       {tabContent()}
       {confirm.node}
       <MoveTenantDialog tenant={moveOpen ? t : null} onClose={() => setMoveOpen(false)} />
+      <CreateTenantLoginDialog tenant={loginOpen ? t : null} onClose={() => setLoginOpen(false)} />
       <UploadDocumentDialog open={uploadOpen} onClose={() => setUploadOpen(false)} title={`Upload for ${t.name}`}
         folders={['Tenant ID and KYC', 'Lease agreements', 'Receipts']} target={{ tenantId: t.id, propertyId: t.propertyId, linkedTo: `${prop?.short ?? ''} · ${unit?.code ?? ''}` }} />
       <RequestIdDialog open={rejectOpen} name={t.name} onClose={() => setRejectOpen(false)} onSend={(reason) => { requestNewId(t.id, reason); setRejectOpen(false); toast(`${t.name.split(' ')[0]} was asked for a new ID`); }} />

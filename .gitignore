@@ -44,3 +44,6 @@ yarn-error.*
 
 # local crash logs
 debug.log
+
+# Supabase CLI local state
+supabase/.temp/
