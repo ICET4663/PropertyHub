@@ -47,3 +47,8 @@ debug.log
 
 # Supabase CLI local state
 supabase/.temp/
+
+# environment files
+.env
+.env.*
+!.env.example

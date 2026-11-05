@@ -24,11 +24,11 @@
   --breakpoint-desktop: 1100px;
 
   /* chrome */
-  --color-sidebar: #0F2A23;
-  --color-sidebar-raised: #173A30;
-  --color-sidebar-border: #1F4538;
-  --color-sidebar-text: #C9D6D0;
-  --color-sidebar-muted: #7F998F;
+  --color-sidebar: #3439CA;
+  --color-sidebar-raised: #22265B;
+  --color-sidebar-border: #30346B;
+  --color-sidebar-text: #D8DAF5;
+  --color-sidebar-muted: #969BCB;
 
   /* canvas & surfaces */
   --color-bg: #F3F2ED;
@@ -45,13 +45,14 @@
   --color-faint: #9AA39E;
 
   /* brand */
-  --color-primary: #1F5C4A;
-  --color-primary-hover: #184B3C;
-  --color-primary-soft: #E3EEE8;
-  --color-primary-tint: #F0F6F2;
-  --color-accent: #E8B04B;
-  --color-accent-deep: #B7801F;
-  --color-accent-soft: #FBF1DD;
+  --color-primary: #3439CA;
+  --color-primary-hover: #292DA8;
+  --color-primary-soft: #E8E9FF;
+  --color-primary-tint: #F4F4FF;
+  --color-accent: #F0B84B;
+  --color-accent-deep: #B98523;
+  --color-accent-soft: #FFF5DF;
+  --color-black: #000000;
 
   /* semantic */
   --color-success: #1F7A55;
@@ -76,6 +77,8 @@
 
   --color-overlay: rgba(15, 42, 35, 0.45);
   --color-white: #FFFFFF;
+  --color-neutral-700: #404040;
+  --color-neutral-600: #525252;
 
   /* corner radius */
   --radius-xs: 6px;

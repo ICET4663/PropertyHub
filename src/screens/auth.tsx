@@ -38,7 +38,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   const managed = state.units.length;
   // Portfolio counts are only readable once signed in (row level security), so signed-out visitors see none.
   const chips = managed ? [`${state.locations.length} locations`, `${state.blocks.length} blocks`, `${managed} units managed`] : [];
-  const headline = variant === 'tenant' ? 'Your home, handled in a few taps.' : 'Every block, unit and tenant — visible at a glance.';
+  const headline = variant === 'tenant' ? 'Your home, handled in a few taps.' : 'Manage every block, unit and tenant from one place.';
   const body = variant === 'tenant'
     ? 'Check your lease, report an issue and follow every repair from submission to sign-off.'
     : 'PropertyHub gives landlords and managers one trusted view of occupancy, leases and maintenance across every location.';
@@ -63,7 +63,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   );
   if (bp === 'mobile') {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.card }}>
+      <View style={{ flex: 1, backgroundColor: colors.card, display: 'non' }}>
         <View style={{ backgroundColor: colors.sidebar, paddingTop: insets.top + 18, paddingHorizontal: 20, paddingBottom: 18 }}>
           <Brand />
           <T size={19} weight="bold" color={colors.white} style={{ marginTop: 16, letterSpacing: -0.3 }}>{headline}</T>
@@ -75,14 +75,16 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   }
   return (
     <View style={{ flex: 1, flexDirection: 'row', backgroundColor: colors.card }}>
-      <View style={{ width: bp === 'desktop' ? '44%' : '42%', maxWidth: 620, backgroundColor: colors.sidebar, paddingTop: 36 + insets.top, overflow: 'hidden' }}>
+      <View style={{ width: bp === 'desktop' ? '44%' : '42%', maxWidth: 620, backgroundColor: colors.sidebar, paddingTop: 36 + insets.top, overflow: 'hidden', flex: 1, flexDirection: 'column', justifyContent: "space-between", }}>
         <View style={{ paddingHorizontal: 44 }}>
           <Brand size="lg" />
-          <T size={bp === 'desktop' ? 34 : 27} weight="bold" color={colors.white} style={{ marginTop: height > 700 ? 56 : 32, letterSpacing: -0.8, lineHeight: bp === 'desktop' ? 42 : 34 }}>{headline}</T>
-          <T size={14.5} color={colors.sidebarText} style={{ marginTop: 16, maxWidth: 440, lineHeight: 22 }}>{body}</T>
           <Chips chips={chips} />
         </View>
-        <View style={{ flex: 1 }} />
+        <View style={{ paddingHorizontal: 44 }}>
+            <T size={bp === 'desktop' ? 34 : 26} weight="bold" color={colors.white} style={{ marginTop: height > 700 ? 56 : 32, letterSpacing: -0.5, lineHeight: bp === 'desktop' ? 44 : 34, maxWidth: 440 }}>{headline}</T>
+            <T size={14} weight= '' color={colors.sidebarText} style={{ marginTop: 19, maxWidth: 440, lineHeight: 22 }}>{body}</T>
+        </View>
+        {/* <View style={{ flex: 1 }} /> */}
         <CityScape height={Math.min(340, height * 0.42)} />
       </View>
       <View style={{ flex: 1 }}>{form}</View>
@@ -110,7 +112,7 @@ function Heading({ icon: Icon, title, body, tone = 'primary', center }: { icon?:
             : <IconTile icon={Icon} tone="primary" size={40} />}
         </View>
       ) : null}
-      <T size={24} weight="bold" style={{ letterSpacing: -0.5 }} center={center}>{title}</T>
+      <T size={24} weight="bold" style={{ letterSpacing: -0.5 }} style={{ textAlign: 'center'}} center={center}>{title}</T>
       {body ? (typeof body === 'string' ? <T size={13.5} color={colors.subtext} style={{ marginTop: 6, lineHeight: 20 }} center={center}>{body}</T> : body) : null}
     </View>
   );
@@ -196,12 +198,12 @@ export function SignInScreen() {
         <Input label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" onSubmitEditing={submit} />
         <Input label="Password" value={password} onChangeText={setPassword} secure placeholder="Enter your password" labelRight={<Link size={12} onPress={() => navigate('forgot')}>Forgot password?</Link>} onSubmitEditing={submit} autoComplete="password" />
         {error ? <Notice tone="danger">{error}</Notice> : null}
-        <Button title="Sign in" onPress={submit} loading={loading === 'password'} disabled={!!loading} size="lg" />
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <Button title="Sign in" onPress={submit} loading={loading === 'password'} style={{ backgroundColor: '#3439CA'}} disabled={!!loading} size="lg" />
+        {/* <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} /><T size={12} color={colors.faint}>or</T><View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
         </View>
-        <Button title="Email me a sign-in code" icon={Mail} variant="secondary" size="lg" onPress={otp} loading={loading === 'code'} disabled={!!loading} />
-        <Notice tone="info" icon={ShieldCheck}>Landlords, property managers and tenants all sign in here. Access is limited to what your role allows.</Notice>
+        <Button title="Email me a sign-in code" icon={Mail} variant="secondary" size="lg" onPress={otp} loading={loading === 'code'} disabled={!!loading} /> */}
+        {/* <Notice tone="info" icon={ShieldCheck}>Landlords, property managers and tenants all sign in here. Access is limited to what your role allows.</Notice> */}
       </View>
       <View style={{ marginTop: 22, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, padding: 12 }}>
         <T size={11} weight="bold" color={colors.faint} upper style={{ marginBottom: 6 }}>Demo accounts · password demo1234</T>
