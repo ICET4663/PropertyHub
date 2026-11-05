@@ -1,10 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { Image } from 'expo-image';
 import {
-  Building2, Download, Ellipsis, Grid2x2, List, MapPin, Pencil, Plus, Search, Users, Wrench, Eye, Check, Upload, X, CircleCheck, Minus,
+  ArrowUpRight, Building2, Download, Ellipsis, Grid2x2, List, MapPin, Pencil, Plus, Search, Users, Wrench, Eye, Check, Upload, X, CircleCheck, Minus,
 } from 'lucide-react-native';
-import { colors, radius, useBreakpoint } from '../../theme';
+import { colors, radius, shadow, useBreakpoint } from '../../theme';
 import { useLookup, useScope, useStore } from '../../store/AppContext';
 import { useRouter } from '../../nav/router';
 import { Page, PageHeader } from '../../components/shell';
@@ -69,6 +69,7 @@ export function PropertiesScreen() {
           {canEdit ? <Button title="Add property" icon={Plus} onPress={() => navigate('addProperty')} /> : null}
         </>}
       />
+      <LocationShowcase stats={stats} value={loc} onChange={setLoc} />
       <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
         <View style={{ flexGrow: 2, flexBasis: 240 }}><Input leftIcon={Search} value={q} onChangeText={setQ} placeholder="Search properties" /></View>
         <View style={{ flexGrow: 1, flexBasis: 150 }}><Select value={loc} onChange={setLoc} options={[{ value: 'all', label: 'All locations' }, ...scope.locations.map((l) => ({ value: l.id, label: l.name }))]} /></View>
@@ -133,26 +134,117 @@ export function PropertiesScreen() {
   );
 }
 
+/** Colour for an occupancy level: fully let, healthy, watch, at risk. */
+function occTone(o: number) {
+  if (o >= 1) return { fg: colors.success, bg: colors.successSoft };
+  if (o >= 0.85) return { fg: colors.primary, bg: colors.primaryTint };
+  if (o >= 0.7) return { fg: colors.warning, bg: colors.warningSoft };
+  return { fg: colors.danger, bg: colors.dangerSoft };
+}
+
+/** Monthly rent from occupied units (unit rent is stored per year). */
+function monthlyRent(s: PropertyStats) {
+  return Math.round(s.units.filter((u) => u.status === 'occupied').reduce((t, u) => t + (u.rent || 0), 0) / 12);
+}
+
+/** Photo tiles for each location; tapping one sets the same location filter as the dropdown. */
+function LocationShowcase({ stats, value, onChange }: { stats: PropertyStats[]; value: string; onChange: (v: string) => void }) {
+  const scope = useScope();
+  const { bp } = useBreakpoint();
+  if (scope.locations.length < 2) return null;
+  const w = bp === 'mobile' ? 200 : 236;
+  const h = bp === 'mobile' ? 128 : 148;
+  const allUnits = stats.reduce((t, x) => t + x.total, 0);
+  const allOcc = stats.reduce((t, x) => t + x.occupied, 0);
+  const tiles = scope.locations.map((l) => {
+    const ps = stats.filter((s) => s.property.locationId === l.id);
+    const units = ps.reduce((t, x) => t + x.total, 0);
+    const occ = ps.reduce((t, x) => t + x.occupied, 0);
+    const cover = (ps.find((s) => propertyPhotos(s.property.id).length) ?? ps[0])?.property;
+    return { l, count: ps.length, units, occupancy: units ? occ / units : 0, cover };
+  });
+
+  const caption = (title: string, sub: string, occupancy: number) => (
+    <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 12, paddingTop: 22, paddingBottom: 11, backgroundColor: 'rgba(12, 28, 23, 0.58)' }}>
+      <T size={14.5} weight="bold" color={colors.white} numberOfLines={1} style={{ letterSpacing: 0.6 }}>{title.toUpperCase()}</T>
+      <Row justify="space-between" style={{ marginTop: 2 }}>
+        <T size={11.5} color="rgba(255,255,255,0.85)">{sub}</T>
+        <T size={11.5} weight="bold" color={colors.white}>{Math.round(occupancy * 100)}%</T>
+      </Row>
+    </View>
+  );
+  const frame = (active: boolean) => ({
+    width: w, height: h, borderRadius: radius.lg, overflow: 'hidden' as const,
+    borderWidth: 2, borderColor: active ? colors.primary : 'transparent',
+    backgroundColor: colors.cardAlt, ...(active ? shadow.card : null),
+  });
+  const tick = (
+    <View style={{ position: 'absolute', top: 9, right: 9, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' }}>
+      <Check size={13} color={colors.white} strokeWidth={3} />
+    </View>
+  );
+
+  return (
+    <View style={{ marginBottom: 18 }}>
+      <Row justify="space-between" style={{ marginBottom: 10 }}>
+        <T size={11.5} weight="bold" color={colors.primary} style={{ letterSpacing: 1.6 }}>BROWSE BY LOCATION</T>
+        {value !== 'all' ? <Link size={12} onPress={() => onChange('all')}>Show all</Link> : null}
+      </Row>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 6 }}>
+        <Touch onPress={() => onChange('all')} accessibilityLabel="Show all locations" style={[frame(value === 'all'), { backgroundColor: colors.primary, padding: 14, justifyContent: 'space-between' }]} hoverStyle={{ opacity: 0.94 }}>
+          <IconTile icon={Building2} tone="primary" size={36} />
+          <View>
+            <T size={14.5} weight="bold" color={colors.white} style={{ letterSpacing: 0.6 }}>ALL LOCATIONS</T>
+            <T size={11.5} color="rgba(255,255,255,0.85)" style={{ marginTop: 2 }}>{stats.length} properties · {allUnits} units · {pct(allOcc, allUnits)}</T>
+          </View>
+          {value === 'all' ? tick : null}
+        </Touch>
+        {tiles.map((t) => (
+          <Touch key={t.l.id} onPress={() => onChange(value === t.l.id ? 'all' : t.l.id)} accessibilityLabel={`Show properties in ${t.l.name}`} style={frame(value === t.l.id)} hoverStyle={{ opacity: 0.94 }}>
+            {t.cover ? <PropertyPhoto property={t.cover} height={h} /> : <View style={{ height: h, alignItems: 'center', justifyContent: 'center' }}><MapPin size={26} color={colors.subtext} /></View>}
+            {caption(t.l.name, `${t.count} ${t.count === 1 ? 'property' : 'properties'} · ${t.units} units`, t.occupancy)}
+            {value === t.l.id ? tick : null}
+          </Touch>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
 function PropertyCard({ s, canEdit }: { s: PropertyStats; canEdit: boolean }) {
   const lookup = useLookup();
   const { navigate } = useRouter();
   const p = s.property;
   const loc = lookup.location(p.locationId);
   const highMaint = s.openRequests >= 6;
+  const tone = occTone(s.occupancy);
+  const photoCount = propertyPhotos(p.id).length;
   return (
     <Card pad={0} style={{ overflow: 'hidden' }}>
-      <Touch onPress={() => navigate('property', { id: p.id })}>
-        <PropertyPhoto property={p} height={150} />
-        <View style={{ position: 'absolute', top: 10, left: 10, flexDirection: 'row', gap: 6 }}>
-          <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3 }}><T size={11} weight="semibold" color={colors.textSoft}>{p.type}</T></View>
-          {highMaint ? <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentDeep }} /><T size={11} weight="semibold" color={colors.accentDeep}>High maintenance</T></View> : null}
+      <Touch onPress={() => navigate('property', { id: p.id })} accessibilityLabel={`Open ${p.name}`}>
+        <PropertyPhoto property={p} height={190} />
+        <View style={{ position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, flexShrink: 1 }}>
+            <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3 }}><T size={11} weight="semibold" color={colors.textSoft}>{p.type}</T></View>
+            {highMaint ? <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 5 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.accentDeep }} /><T size={11} weight="semibold" color={colors.accentDeep}>High maintenance</T></View> : null}
+          </View>
+          <View style={{ backgroundColor: colors.card, borderRadius: radius.full, paddingHorizontal: 9, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: tone.fg }} />
+            <T size={11} weight="bold" color={tone.fg}>{pct(s.occupied, s.total)} occupied</T>
+          </View>
+        </View>
+        <View style={{ position: 'absolute', bottom: 10, left: 10, right: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+          {photoCount > 1 ? <View style={{ backgroundColor: 'rgba(12, 28, 23, 0.6)', borderRadius: radius.full, paddingHorizontal: 8, paddingVertical: 2 }}><T size={10.5} weight="semibold" color={colors.white}>{photoCount} photos</T></View> : <View />}
+          <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', ...shadow.card }}>
+            <ArrowUpRight size={16} color={colors.text} />
+          </View>
         </View>
       </Touch>
       <View style={{ padding: 16 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <Touch onPress={() => navigate('property', { id: p.id })} style={{ flex: 1 }}>
-            <T size={15} weight="semibold">{p.name}</T>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}><MapPin size={12} color={colors.subtext} /><T size={12} color={colors.subtext}>{loc?.name}, {loc?.city}</T></View>
+            <T size={16} weight="bold" style={{ letterSpacing: -0.2 }}>{p.name}</T>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 }}><MapPin size={12} color={colors.subtext} /><T size={11.5} weight="semibold" color={colors.subtext} style={{ letterSpacing: 0.5 }}>{`${loc?.name ?? ''}, ${loc?.city ?? ''}`.toUpperCase()}</T></View>
           </Touch>
           <Menu
             width={190}
@@ -163,6 +255,17 @@ function PropertyCard({ s, canEdit }: { s: PropertyStats; canEdit: boolean }) {
               { label: 'View maintenance', icon: Wrench, onPress: () => navigate('requests', { propertyId: p.id }) },
             ]}
           />
+        </View>
+        <View style={{ flexDirection: 'row', marginTop: 14, backgroundColor: colors.cardAlt, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border }}>
+          <View style={{ flex: 1, padding: 12, gap: 3 }}>
+            <Row gap={5}><Building2 size={12} color={colors.subtext} /><T size={10.5} weight="semibold" color={colors.subtext} style={{ letterSpacing: 0.8 }}>UNITS</T></Row>
+            <T size={14.5} weight="bold">{s.occupied} / {s.total} <T size={12} weight="medium" color={colors.subtext}>occupied</T></T>
+          </View>
+          <View style={{ width: 1, backgroundColor: colors.border, marginVertical: 10 }} />
+          <View style={{ flex: 1, padding: 12, gap: 3 }}>
+            <T size={10.5} weight="semibold" color={colors.subtext} style={{ letterSpacing: 0.8 }}>₦ MONTHLY RENT</T>
+            <T size={14.5} weight="bold" color={colors.primary}>{naira(monthlyRent(s))}</T>
+          </View>
         </View>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 }}>
           {[['Blocks', s.blocks], ['Units', s.total], ['Occupied', s.occupied], ['Vacant', s.vacant], ['Maint.', s.maintenance]].map(([l, v]) => (

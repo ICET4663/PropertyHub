@@ -100,7 +100,7 @@ const AUDIENCES: { icon: LucideIcon; who: string; steps: string[] }[] = [
     who: 'Property managers',
     steps: [
       'Set up locations, blocks and units, and see which are let, vacant or under repair.',
-      'Invite tenants with a unit code, check their ID and approve them.',
+      'Add tenants, create their sign-in details and share them by WhatsApp or email.',
       'Create, renew and end leases; assign repairs to a caretaker or vendor.',
     ],
   },
@@ -108,7 +108,7 @@ const AUDIENCES: { icon: LucideIcon; who: string; steps: string[] }[] = [
     icon: KeyRound,
     who: 'Tenants',
     steps: [
-      'Sign up with the email your manager has on file and the invite code from your welcome message.',
+      'Sign in with the email and password your property manager shared with you by WhatsApp or email.',
       'Upload your ID, then see your lease, charges and documents in one place.',
       'Report an issue with photos, follow the repair live, and confirm when it is fixed.',
     ],
@@ -126,7 +126,7 @@ const AUDIENCES: { icon: LucideIcon; who: string; steps: string[] }[] = [
 
 const FEATURES: { icon: LucideIcon; title: string; body: string }[] = [
   { icon: Building2, title: 'Portfolio and occupancy', body: 'Every location, block and unit with its status, rent and current tenant.' },
-  { icon: UserCheck, title: 'Tenant onboarding', body: 'Invite codes, ID uploads and a review step before a tenant gets full access.' },
+  { icon: UserCheck, title: 'Tenant onboarding', body: 'Manager-created sign-ins, ID uploads and a review step before a tenant gets full access.' },
   { icon: FileText, title: 'Leases and documents', body: 'Lease terms, renewals and move-outs, with agreements and papers stored privately.' },
   { icon: ClipboardCheck, title: 'Repairs from report to sign-off', body: 'Photos at every step, a full history, and the tenant confirms or disputes the result.' },
   { icon: CreditCard, title: 'Rent and charges', body: 'Tenants pay through Paystack. A charge shows as paid only after the payment is confirmed.' },
@@ -138,11 +138,7 @@ const FEATURES: { icon: LucideIcon; title: string; body: string }[] = [
 const FAQ: { q: string; a: string }[] = [
   {
     q: 'How do I get an account?',
-    a: 'Tenants create their own account using the email address their property manager has on file. Staff accounts are created by an administrator in your organisation.',
-  },
-  {
-    q: 'What is an invite code?',
-    a: 'A short code such as PALM-A4-7Q2 from your property manager\'s welcome message. It links your new account to your unit. If you don\'t have one, sign up anyway and your manager will match you.',
+    a: 'Accounts are created for you. Your property manager or administrator sets up your sign-in and shares your email and a temporary password by WhatsApp or email. Change the password after you first sign in.',
   },
   {
     q: 'Who can see my ID and documents?',
@@ -230,7 +226,6 @@ export function LandingScreen() {
                 </T>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 28 }}>
                   <Button title={me ? 'Open PropertyHub' : 'Sign in'} variant="accent" size="lg" onPress={signIn} style={isMobile ? { flexGrow: 1 } : undefined} />
-                  {me ? null : <Button title="I have an invite code" icon={KeyRound} variant="dark" size="lg" onPress={() => navigate('signUp')} style={isMobile ? { flexGrow: 1 } : undefined} />}
                 </View>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 18 }}>
                   <Smartphone size={16} color={colors.accent} style={{ marginTop: 1 }} />

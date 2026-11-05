@@ -192,7 +192,7 @@ export function SignInScreen() {
   };
 
   return (
-    <AuthLayout top={<>{Platform.OS === 'web' ? <BackLink label="PropertyHub home" to="welcome" /> : <View />}<T size={12.5} color={colors.subtext}>New tenant? <Link size={12.5} onPress={() => navigate('signUp')}>Create an account</Link></T></>}>
+    <AuthLayout top={<>{Platform.OS === 'web' ? <BackLink label="PropertyHub home" to="welcome" /> : <View />}<T size={12.5} color={colors.subtext}>No account? Ask your property manager.</T></>}>
       <Heading title="Welcome back" body="Sign in to manage your properties or your tenancy. We'll take you to the right workspace for your role." />
       <View style={{ gap: 16 }}>
         <Input label="Email address" value={email} onChangeText={setEmail} placeholder="you@example.com" autoCapitalize="none" keyboardType="email-address" autoComplete="email" onSubmitEditing={submit} />

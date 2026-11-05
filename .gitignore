@@ -45,8 +45,13 @@ yarn-error.*
 # local crash logs
 debug.log
 
+<<<<<<< HEAD
 .env
 .env.*
 !.env.example
 
 .env
+=======
+# Supabase CLI local state
+supabase/.temp/
+>>>>>>> 6e6ac8f (Close public sign-up; Super Admin and property managers create accounts with shareable passwords)

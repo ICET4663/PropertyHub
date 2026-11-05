@@ -41,7 +41,9 @@ export type NewDocument = Pick<DocFile, 'folder' | 'linkedTo' | 'tenantId' | 'pr
 
 export interface RenewInput { start: string; end: string; rent: number; serviceCharge: number; notifyTenant: boolean; scheduleReminders: boolean }
 
-export interface CreateUserInput { name: string; email: string; password: string; role: Role; access: string; propertyIds?: string[] }
+export interface CreateUserInput { name: string; email: string; phone?: string; password: string; role: Role; access: string; propertyIds?: string[]; tenantId?: string }
+/** `needsConfirmation`: the server function isn't deployed, so the account was made by public sign-up and must confirm its email first. */
+export type CreateUserResult = { ok: true; needsConfirmation: boolean } | { ok: false; error: string };
 
 export interface SignUpInput { name: string; email: string; phone: string; password: string; invite: string }
 
@@ -123,7 +125,8 @@ interface Store {
   markNotificationRead: (id: string) => void;
   markAllNotificationsRead: (audience: string) => void;
   // admin
-  createUser: (u: CreateUserInput) => Promise<AuthResult>;
+  /** Super Admin: any role. Property manager: tenant logins for their own tenants. */
+  createUser: (u: CreateUserInput) => Promise<CreateUserResult>;
   saveUserRole: (id: string, role: Role, propertyIds: string[], access: string) => Promise<AuthResult>;
   refreshUsers: () => Promise<void>;
   updateUser: (id: string, patch: Partial<User>) => void;
@@ -407,11 +410,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, [state, cacheOwner]);
 
   /** Staff actions done by server functions still go in the activity log. */
-  const logAction = useCallback((action: string, record: string) => {
+  const logAction = useCallback((action: string, record: string, area: ActivityLog['area'] = 'Maintenance') => {
     const s = stateRef.current;
     const user = s.users.find((u) => u.id === s.sessionUserId);
     if (!user || user.role === 'tenant') return;
-    const entry: ActivityLog = { id: uid('lg'), at: new Date().toISOString(), user: user.name, action, record, area: 'Maintenance', device: deviceLabel };
+    const entry: ActivityLog = { id: uid('lg'), at: new Date().toISOString(), user: user.name, action, record, area, device: deviceLabel };
     setNow({ ...s, logs: [entry, ...s.logs].slice(0, 600) });
     void supabase.from('activity_logs').insert({ id: entry.id, user_name: entry.user, actor_id: user.id, action, record, area: entry.area, device: entry.device }).then(() => {});
   }, [setNow]);
@@ -906,31 +909,53 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       }
     },
     createUser: async (input) => {
-      if (me?.role !== 'super_admin') return { ok: false, error: 'Only a Super Admin can create staff accounts.' };
+      const allowed = me?.role === 'super_admin' || (me?.role === 'manager' && input.role === 'tenant');
+      if (!allowed) return { ok: false, error: 'Only a Super Admin can create staff accounts. Property managers can create tenant logins.' };
       const email = input.email.trim().toLowerCase();
+      const name = input.name.trim();
       if (stateRef.current.users.some((u) => u.email.toLowerCase() === email)) {
-        return { ok: false, error: 'This account already exists. Use Edit role and access instead.' };
+        return { ok: false, error: 'This email already has an account. Use Reset password, or edit its role from All accounts.' };
       }
+      const done = async (needsConfirmation: boolean): Promise<CreateUserResult> => {
+        const fresh = await loadAll().catch(() => null);
+        if (fresh) setNow({ ...stateRef.current, ...fresh });
+        logAction(`Created ${input.role === 'tenant' ? 'tenant' : input.role.replace('_', ' ')} login`, email, 'Users');
+        return { ok: true, needsConfirmation };
+      };
+
+      // Preferred: the create-account Edge Function makes a confirmed login, so the shared password works at once.
+      const fn = await supabase.functions.invoke('create-account', { body: { ...input, name, email } });
+      if (!fn.error) return done(false);
+      const res = (fn.error as { context?: Response }).context;
+      let message: string | undefined;
+      try { message = ((await res?.json()) as { error?: string } | undefined)?.error; } catch { /* not our JSON */ }
+      if (message) return { ok: false, error: message };
+      if (res && res.status !== 404) return { ok: false, error: authError(fn.error.message) };
+
+      // Fallback while the function isn't deployed: public sign-up. With email confirmation on,
+      // the person must confirm their email before the shared password works.
       const client = createSignupClient();
       let created = false;
       try {
-        const { data, error } = await client.auth.signUp({ email, password: input.password, options: { data: { name: input.name.trim() } } });
+        const { data, error } = await client.auth.signUp({ email, password: input.password, options: { data: { name, phone: input.phone ?? '' } } });
         if (error) throw error;
         if (!data.user || data.user.identities?.length === 0) throw new Error('This email already has an account. Refresh the list and edit its role.');
         created = true;
-        const profile = await supabase.from('profiles').update({ name: input.name.trim(), role: input.role, access: input.access })
-          .eq('id', data.user.id).eq('email', email).select('id').single();
-        if (profile.error) throw profile.error;
-        if (input.propertyIds?.length && (input.role === 'manager' || input.role === 'caretaker')) {
-          const links = await supabase.from('profile_properties').insert(input.propertyIds.map((property_id) => ({ profile_id: data.user!.id, property_id })));
-          if (links.error) throw links.error;
+        // New sign-ups are tenants already; only a Super Admin may change a profile's role or links.
+        if (me?.role === 'super_admin') {
+          const patch: Record<string, unknown> = { name, role: input.role, access: input.access };
+          if (input.tenantId) patch.tenant_id = input.tenantId;
+          const profile = await supabase.from('profiles').update(patch).eq('id', data.user.id).eq('email', email).select('id').single();
+          if (profile.error) throw profile.error;
+          if (input.propertyIds?.length && (input.role === 'manager' || input.role === 'caretaker')) {
+            const links = await supabase.from('profile_properties').insert(input.propertyIds.map((property_id) => ({ profile_id: data.user!.id, property_id })));
+            if (links.error) throw links.error;
+          }
         }
-        const fresh = await loadAll();
-        setNow({ ...stateRef.current, ...fresh });
-        return { ok: true };
+        return done(true);
       } catch (e) {
-        const message = authError(e instanceof Error ? e.message : String((e as { message?: string }).message ?? e));
-        return { ok: false, error: created ? `Account created, but setup is incomplete. Refresh users and edit its role and access. ${message}` : message };
+        const msg = authError(e instanceof Error ? e.message : String((e as { message?: string }).message ?? e));
+        return { ok: false, error: created ? `Account created, but setup is incomplete. Refresh users and edit its role and access. ${msg}` : msg };
       } finally {
         await client.auth.signOut({ scope: 'local' });
       }
