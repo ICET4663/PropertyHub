@@ -3,7 +3,7 @@ import { KeyboardAvoidingView, Modal, Platform, Pressable, RefreshControl, Scrol
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import {
-  Activity, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, FileText, Folder, Grid2x2, House, LayoutGrid, LogOut, MapPin, Megaphone,
+  Activity, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, FileText, Folder, Grid2x2, Houses, House, LayoutGrid, LogOut, MapPin, Megaphone,
   Menu as MenuIcon, MessageCircle, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users,
   Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, WifiOff, X, ClipboardList, Contact, Ellipsis, Receipt,
 } from 'lucide-react-native';
@@ -141,14 +141,30 @@ export function SectionTabs({ style }: { style?: StyleProp<ViewStyle> }) {
 // ---------------------------------------------------------------- brand
 
 export function Brand({ size = 'md', light = true }: { size?: 'md' | 'lg'; light?: boolean }) {
-  const s = size === 'lg' ? 36 : 30;
+  const s = size === 'lg' ? 31 : 28;
   return (
-    <View className="flex-row items-center gap-10">
-      <View className="rounded-[9px] bg-accent items-center justify-center" style={{ width: s, height: s }}>
-        <House size={s * 0.5} color={colors.sidebar} strokeWidth={2.2} />
+    <View className="flex-row items-center gap-9">
+      <View className="rounded-[9px] bg-card items-center justify-center" style={{ width: s, height: s }}>
+        <Houses size={s * 0.55} color={colors.sidebar} strokeWidth={2.3} />
       </View>
       <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.white : colors.text} style={{ letterSpacing: -0.3 }}>
-        Property<T size={size === 'lg' ? 19 : 16.5} weight="bold" color={colors.accent}>Hub</T>
+        Prop<T size={size === 'lg' ? 19 : 16.5} weight="normal" color={colors.accent}>Nest</T>
+      </T>
+    </View>
+  );
+}
+
+//-------------------------------------------------------------brand2
+
+export function Brand2({ size = 'md', light = true }: { size?: 'md' | 'lg'; light?: boolean }) {
+  const s = size === 'lg' ? 32 : 28;
+  return (
+    <View className="flex-row items-center gap-8">
+      <View className="rounded-[9px] bg-sidebar items-center justify-center" style={{ width: s, height: s }}>
+        <Houses size={s * 0.55} color={colors.card} strokeWidth={2.3} />
+      </View>
+      <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.black : colors.text} style={{ letterSpacing: -0.3 }}>
+        Prop<T size={size === 'lg' ? 19 : 16.5} weight="normal" color={colors.primary}>Nest</T>
       </T>
     </View>
   );
@@ -166,14 +182,14 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
   if (!me) return null;
   const sub = me.role === 'tenant' && myTenant ? `Tenant · ${lookup.property(myTenant.propertyId)?.short ?? ''} ${lookup.unit(myTenant.unitId)?.code ?? ''}` : `${roleLabel(me.role)}${me.role === 'super_admin' ? ' · Landlord' : ''}`;
   return (
-    <View className="flex-1 bg-sidebar" style={{ paddingTop: insets.top }}>
-      <View className={`h-64 justify-center border-b border-b-sidebar-border ${collapsed ? 'px-0 items-center' : 'px-18 items-start'}`}>
-        {collapsed ? <View className="w-30 h-30 rounded-[9px] bg-accent items-center justify-center"><House size={15} color={colors.sidebar} strokeWidth={2.2} /></View> : <Brand />}
+    <View className="flex-1 bg-white border-r-1 border-[#E5E5E5]" style={{ paddingTop: insets.top }}>
+      <View className={`h-64 justify-center border-b-1 border-[#E5E5E5] ${collapsed ? 'px-0 items-center' : 'px-18 items-start'}`}>
+        {collapsed ? <View className="w-32 h-32 rounded-[9px] bg-sidebar items-center justify-center"><Houses size={15} color={colors.white} strokeWidth={2.2} /></View> : <Brand2 />}
       </View>
       <ScrollView className="flex-1" contentContainerClassName="px-10 py-14" showsVerticalScrollIndicator={false}>
         {nav.map((s) => (
-          <View key={s.title} className="mb-8">
-            {!collapsed ? <T size={10.5} weight="bold" color={colors.sidebarMuted} upper style={{ paddingHorizontal: 10, marginBottom: 4, marginTop: 4 }}>{s.title}</T> : <View className="h-8" />}
+          <View key={s.title} className={`mb-8 ${collapsed ? 'flex justify-center items-center' :''}`}>
+            {!collapsed ? <T size={10} weight="bold" color={colors.neutral600} upper style={{ paddingHorizontal: 10, marginBottom: 10, marginTop: 12 }}>{s.title}</T> : <View className="h-7" />}
             {s.items.map((it) => {
               const on = active === it.key;
               return (
@@ -181,15 +197,15 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
                   key={it.key}
                   accessibilityLabel={it.label}
                   onPress={() => { go(it.key); onNavigate?.(); }}
-                  className={`flex-row items-center gap-11 h-38 rounded-[9px] mb-1 ${collapsed ? 'px-0 justify-center' : 'px-10 justify-start'} ${on ? 'bg-sidebar-raised' : ''}`}
-                  hoverStyle={{ backgroundColor: on ? colors.sidebarRaised : 'rgba(255,255,255,0.04)' }}
+                  className={`flex-row items-center gap-10 h-36 rounded-[9px] mb-3 ${collapsed ? 'w-36 px-0 items-center justify-center mb-9' : 'px-10 justify-start'} ${on ? 'bg-sidebar' : ''}`}
+                  hoverStyle={{ backgroundColor: on ? colors.primaryHover : 'rgba(255,255,255,0.04)' }}
                 >
-                  {on ? <View className="absolute left-0 top-8 bottom-8 w-3 rounded-[2px] bg-accent" /> : null}
-                  <it.icon size={17} color={on ? colors.white : colors.sidebarText} strokeWidth={1.8} />
-                  {!collapsed ? <T size={13.5} weight={on ? 'semibold' : 'medium'} color={on ? colors.white : colors.sidebarText} style={{ flex: 1 }}>{it.label}</T> : null}
+                  {/* {on ? <View className="absolute left-0 top-8 bottom-8 w-3 rounded-[2px] bg-accent" /> : null} */}
+                  <it.icon size={17} color={on ? colors.white : colors.neutral700} strokeWidth={1.8} />
+                  {!collapsed ? <T size={13} weight={on ? 'semibold' : 'semibold'} color={on ? colors.white : colors.neutral700} style={{ flex: 1 }}>{it.label}</T> : null}
                   {it.badge ? (
                     <View className={`rounded-[10px] bg-danger items-center justify-center px-5 ${collapsed ? 'absolute top-3 right-6 min-w-15 h-15' : 'min-w-19 h-19'}`}>
-                      <T size={collapsed ? 9 : 10.5} weight="bold" color={colors.white} style={{ lineHeight: 13 }}>{it.badge}</T>
+                      <T size={collapsed ? 9 : 10} weight="bold" color={colors.white} style={{ lineHeight: 13 }}>{it.badge}</T>
                     </View>
                   ) : null}
                 </Touch>
@@ -199,7 +215,7 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
         ))}
       </ScrollView>
       <View className="p-10" style={{ paddingBottom: 10 + insets.bottom }}>
-        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} className={`flex-row items-center gap-10 rounded-md bg-sidebar-raised ${collapsed ? 'p-6 justify-center' : 'p-10 justify-start'}`}>
+        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} className={`flex-row items-center gap-10 rounded-md bg-sidebar ${collapsed ? 'p-6 justify-center' : 'p-10 justify-start'}`}>
           <Avatar name={me.name} size={32} tone={[colors.accent, colors.sidebar]} />
           {!collapsed ? (
             <View className="flex-1">

@@ -540,11 +540,11 @@ export function Notice({ tone = 'info', icon, children, title, action, style }: 
   const { isMobile } = useBreakpoint();
   const stacked = isMobile && !!action;
   return (
-    <View className={`flex-row gap-10 rounded-md px-14 py-11 border ${stacked ? 'items-start' : 'items-center'}`} style={[{ backgroundColor: bg, borderColor: fg + '26' }, style]}>
-      <Icon size={16} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
+    <View className={`flex-row gap-9 rounded-md px-14 py-7 border ${stacked ? 'items-start' : 'items-center'}`} style={[{ backgroundColor: bg, borderColor: fg + '26' }, style]}>
+      <Icon size={14} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
       <View style={{ flex: 1 }}>
         {title ? <T size={13} weight="semibold" color={tone === 'info' ? colors.text : fg}>{title}</T> : null}
-        {typeof children === 'string' ? <T size={12.5} color={colors.textSoft}>{children}</T> : children}
+        {typeof children === 'string' ? <T size={12} weight="semibold" color={colors.textSoft}>{children}</T> : children}
         {stacked ? <View style={{ marginTop: 10, alignItems: 'flex-start' }}>{action}</View> : null}
       </View>
       {stacked ? null : action}

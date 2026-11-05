@@ -3,11 +3,18 @@ import { useWindowDimensions } from 'react-native';
 // PropertyHub design tokens — deep evergreen chrome, warm paper canvas, honey accent.
 export const colors = {
   // chrome
-  sidebar: '#0F2A23',
-  sidebarRaised: '#173A30',
-  sidebarBorder: '#1F4538',
-  sidebarText: '#C9D6D0',
-  sidebarMuted: '#7F998F',
+  // sidebar: '#3439CA',
+  // side: '#3439CA',
+  // sidebarRaised: '#173A30',
+  // sidebarBorder: '#1F4538',
+  // sidebarText: '#C9D6D0',
+  // sidebarMuted: '#7F998F',
+
+  sidebar: '#3439CA',
+  sidebarRaised: '#22265B',
+  sidebarBorder: '#30346B',
+  sidebarText: '#D8DAF5',
+  sidebarMuted: '#969BCB',
 
   // canvas & surfaces
   bg: '#F3F2ED',
@@ -24,13 +31,22 @@ export const colors = {
   faint: '#9AA39E',
 
   // brand
-  primary: '#1F5C4A',
-  primaryHover: '#184B3C',
-  primarySoft: '#E3EEE8',
-  primaryTint: '#F0F6F2',
-  accent: '#E8B04B',
-  accentDeep: '#B7801F',
-  accentSoft: '#FBF1DD',
+  // primary: '#1F5C4A',
+  // primaryHover: '#184B3C',
+  // primarySoft: '#E3EEE8',
+  // primaryTint: '#F0F6F2',
+  // accent: '#E8B04B',
+  // accentDeep: '#B7801F',
+  // accentSoft: '#FBF1DD',
+
+  primary: '#3439CA',
+  primaryHover: '#292DA8',
+  primarySoft: '#E8E9FF',
+  primaryTint: '#F4F4FF',
+  accent: '#F0B84B',
+  accentDeep: '#B98523',
+  accentSoft: '#FFF5DF',
+  black: '#000000',
 
   // semantic
   success: '#1F7A55',
@@ -46,15 +62,24 @@ export const colors = {
   purpleSoft: '#EEEAFB',
   neutralSoft: '#EFEEEA',
 
-  // data viz
-  vizOccupied: '#1F5C4A',
-  vizVacant: '#4C7FE0',
+  // // data viz
+  // vizOccupied: '#1F5C4A',
+  // vizVacant: '#4C7FE0',
+  // vizMaint: '#E0A526',
+  // vizSage: '#9DB5AA',
+  // vizBronze: '#C68D2E',
+
+
+  vizOccupied: '#3439CA',
+  vizVacant: '#38A5C9',
   vizMaint: '#E0A526',
-  vizSage: '#9DB5AA',
+  vizSage: '#8B9AD5',
   vizBronze: '#C68D2E',
 
   overlay: 'rgba(15, 42, 35, 0.45)',
   white: '#FFFFFF',
+  neutral700: '#404040',
+  neutral600: '#525252',
 };
 
 export const radius = { xs: 6, sm: 8, md: 10, lg: 14, xl: 18, full: 999 };
