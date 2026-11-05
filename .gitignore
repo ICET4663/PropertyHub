@@ -44,3 +44,9 @@ yarn-error.*
 
 # local crash logs
 debug.log
+
+.env
+.env.*
+!.env.example
+
+.env

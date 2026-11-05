@@ -60,7 +60,7 @@ export function CityScape({ height = 300 }: { height?: number }) {
     const gx = (w - 16) / cols;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const on = lit.has(`${(r + key.length) % 8}-${(c + r) % 5}`) && (r * cols + c + key.length) % 3 === 0;
-      nodes.push(<Rect key={`${key}-${r}-${c}`} x={x + 8 + c * gx + gx * 0.2} y={y + 12 + r * 22} width={gx * 0.55} height={11} fill={on ? '#E8B04B' : '#23493E'} opacity={on ? 0.95 : 0.9} />);
+      nodes.push(<Rect key={`${key}-${r}-${c}`} x={x + 8 + c * gx + gx * 0.2} y={y + 12 + r * 22} width={gx * 0.55} height={11} fill={on ? '#777CE8' : '#454AB5'} opacity={on ? 0.95 : 0.9} />);
     }
     return nodes;
   };
@@ -68,14 +68,14 @@ export function CityScape({ height = 300 }: { height?: number }) {
     <View style={{ height, overflow: 'hidden' }}>
       <Svg width="100%" height={height} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMax slice">
         <G>
-          <Circle cx={430} cy={60} r={52} fill="#E8B04B" opacity={0.08} />
-          <Circle cx={430} cy={60} r={30} fill="#B99A53" opacity={0.55} />
+          <Circle cx={430} cy={60} r={52} fill="#8B8FF0" opacity={0.10} />
+          <Circle cx={430} cy={60} r={30} fill="#777CE8" opacity={0.55} />
         </G>
-        {tower(0, 150, 110, 5, 7, 'a', '#15372E')}
-        {tower(120, 70, 150, 6, 11, 'bb', '#1B4136')}
-        {tower(290, 120, 130, 5, 8, 'ccc', '#173B31')}
-        {tower(430, 170, 130, 5, 6, 'dddd', '#15372E')}
-        <Rect x={0} y={H - 16} width={W} height={16} fill="#0B221C" />
+        {tower(0, 150, 110, 5, 7, 'a', '#7478D6')}
+        {tower(120, 70, 150, 6, 11, 'bb', '#6268CC')}
+        {tower(290, 120, 130, 5, 8, 'ccc', '#8589DF')}
+        {tower(430, 170, 130, 5, 6, 'dddd', '#7478D6')}
+        {/* <Rect x={0} y={H - 16} width={W} height={16} fill="#22265B" /> */}
       </Svg>
     </View>
   );
