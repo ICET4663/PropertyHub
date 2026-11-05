@@ -63,7 +63,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
   );
   if (bp === 'mobile') {
     return (
-      <View style={{ flex: 1, backgroundColor: colors.card, display: 'non' }}>
+      <View style={{ flex: 1, backgroundColor: colors.card }}>
         <View style={{ backgroundColor: colors.sidebar, paddingTop: insets.top + 18, paddingHorizontal: 20, paddingBottom: 18 }}>
           <Brand />
           <T size={19} weight="bold" color={colors.white} style={{ marginTop: 16, letterSpacing: -0.3 }}>{headline}</T>
