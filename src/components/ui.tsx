@@ -213,11 +213,11 @@ export function Avatar({ name, size = 32, tone }: { name: string; size?: number;
   );
 }
 
-export function IconTile({ icon: Icon, tone = 'primary', size = 34, iconSize }: { icon: LucideIcon; tone?: Tone; size?: number; iconSize?: number }) {
+export function IconTile({ icon: Icon, tone = 'primary', size = 34, iconSize, color }: { icon: LucideIcon; tone?: Tone; size?: number; iconSize?: number; color?: string }) {
   const [bg, fg] = toneColors[tone];
   return (
-    <View className="rounded-md items-center justify-center" style={{ width: size, height: size, backgroundColor: bg }}>
-      <Icon size={iconSize ?? size * 0.5} color={fg} strokeWidth={1.9} />
+    <View className="rounded-full items-center justify-center" style={{ width: size, height: size, backgroundColor: color ? `${color}15` : bg }}>
+      <Icon size={iconSize ?? size * 0.5} color={color ?? fg} strokeWidth={1.9} />
     </View>
   );
 }

@@ -82,7 +82,7 @@ function AuthLayout({ children, variant = 'staff', top }: { children: React.Reac
         </View>
         <View style={{ paddingHorizontal: 44 }}>
             <T size={bp === 'desktop' ? 34 : 26} weight="bold" color={colors.white} style={{ marginTop: height > 700 ? 56 : 32, letterSpacing: -0.5, lineHeight: bp === 'desktop' ? 44 : 34, maxWidth: 440 }}>{headline}</T>
-            <T size={14} weight= '' color={colors.sidebarText} style={{ marginTop: 19, maxWidth: 440, lineHeight: 22 }}>{body}</T>
+            <T size={14} weight= '400' color={colors.sidebarText} style={{ marginTop: 19, maxWidth: 440, lineHeight: 22 }}>{body}</T>
         </View>
         {/* <View style={{ flex: 1 }} /> */}
         <CityScape height={Math.min(340, height * 0.42)} />

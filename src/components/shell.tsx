@@ -145,10 +145,10 @@ export function Brand({ size = 'md', light = true }: { size?: 'md' | 'lg'; light
   return (
     <View className="flex-row items-center gap-9">
       <View className="rounded-[9px] bg-card items-center justify-center" style={{ width: s, height: s }}>
-        <Houses size={s * 0.55} color={colors.sidebar} strokeWidth={2.3} />
+        <Houses size={s * 0.55} color={colors.sidebar} strokeWidth={2.2} />
       </View>
       <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.white : colors.text} style={{ letterSpacing: -0.3 }}>
-        Prop<T size={size === 'lg' ? 19 : 16.5} weight="normal" color={colors.accent}>Nest</T>
+        Prop<T size={size === 'lg' ? 19 : 16.5} weight="bold" color={colors.black}>Nest</T>
       </T>
     </View>
   );
@@ -215,12 +215,12 @@ function Sidebar({ collapsed, onNavigate }: { collapsed: boolean; onNavigate?: (
         ))}
       </ScrollView>
       <View className="p-10" style={{ paddingBottom: 10 + insets.bottom }}>
-        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} className={`flex-row items-center gap-10 rounded-md bg-sidebar ${collapsed ? 'p-6 justify-center' : 'p-10 justify-start'}`}>
-          <Avatar name={me.name} size={32} tone={[colors.accent, colors.sidebar]} />
+        <Touch onPress={() => { navigate(me.role === 'tenant' ? 'profile' : 'account'); onNavigate?.(); }} className={`flex-row items-center gap-10 rounded-md bg-white border-1 border-[#D4D4D4] ${collapsed ? 'p-6 justify-center' : 'p-10 justify-start'}`}>
+          <Avatar name={me.name} size={32} tone={[colors.sidebar, colors.white]} />
           {!collapsed ? (
             <View className="flex-1">
-              <T size={13} weight="semibold" color={colors.white} numberOfLines={1}>{me.name}</T>
-              <T size={11} color={colors.sidebarMuted} numberOfLines={1}>{sub}</T>
+              <T size={13} weight="semibold" color={colors.black} numberOfLines={1}>{me.name}</T>
+              <T size={11} weight='medium' color={colors.neutral600} numberOfLines={1}>{sub}</T>
             </View>
           ) : null}
         </Touch>
