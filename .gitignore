@@ -31,7 +31,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local environment files
+.env
+.env.*
+!.env.example
 .env*.local
 
 # typescript
@@ -47,8 +50,3 @@ debug.log
 
 # Supabase CLI local state
 supabase/.temp/
-
-# environment files
-.env
-.env.*
-!.env.example
