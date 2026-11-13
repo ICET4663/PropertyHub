@@ -31,7 +31,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
+# local environment files
+.env
+.env.*
+!.env.example
 .env*.local
 
 # typescript
@@ -45,13 +48,5 @@ yarn-error.*
 # local crash logs
 debug.log
 
-<<<<<<< HEAD
-.env
-.env.*
-!.env.example
-
-.env
-=======
 # Supabase CLI local state
 supabase/.temp/
->>>>>>> 6e6ac8f (Close public sign-up; Super Admin and property managers create accounts with shareable passwords)
