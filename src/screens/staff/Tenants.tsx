@@ -438,7 +438,7 @@ function emptyDraft(startedBy: string, unitId?: string, state?: ReturnType<typeo
   const start = toISODate(addDays(new Date(), 7));
   return {
     id: uid('onb'), step: 1, startedBy, savedAt: new Date().toISOString(),
-    personal: { name: '', phone: '', email: '', address: '', dob: '1992-01-01', gender: 'Female' },
+    personal: { name: '', phone: '', email: '', address: '', dob: '', gender: 'Female' },
     kin: { name: '', relationship: 'Sister', phone: '', email: '', address: '' },
     employment: { status: 'Employed', employer: '', occupation: '', workAddress: '' },
     id_: { type: 'National ID (NIN slip)', number: '', docUploaded: false, photoUploaded: false },
@@ -495,6 +495,7 @@ export function OnboardingScreen() {
       if (d.personal.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number.';
       if (!/^\S+@\S+\.\S+$/.test(d.personal.email)) e.email = 'Enter a valid email.';
       if (!d.personal.address.trim()) e.address = 'Enter the current address.';
+      if (!validDob(d.personal.dob)) e.dob = 'Enter a valid date of birth, e.g. 14 / 06 / 1991.';
       if (state.tenants.some((t) => t.email.toLowerCase() === d.personal.email.toLowerCase() && t.status !== 'former' && t.status !== 'deactivated')) e.email = 'A tenant with this email already exists.';
     }
     if (n === 2) {
@@ -599,7 +600,7 @@ export function OnboardingScreen() {
             </Grid>
             <Input label="Current residential address" required value={d.personal.address} onChangeText={(v) => setP('address', v)} error={errors.address} placeholder="7 Ogunlana Drive, Surulere, Lagos" />
             <Grid cols={{ mobile: 1, tablet: 2 }} gap={14}>
-              <Input label="Date of birth" required value={fmtSlash(d.personal.dob)} onChangeText={(v) => { const m = v.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{4})/); if (m) setP('dob', `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`); }} right={<Calendar size={15} color={colors.faint} />} hint="DD / MM / YYYY" />
+              <DobField value={d.personal.dob} onChange={(v) => setP('dob', v)} error={errors.dob} />
               <Select label="Gender" required value={d.personal.gender} onChange={(v) => setP('gender', v)} options={[{ value: 'Female', label: 'Female' }, { value: 'Male', label: 'Male' }]} />
             </Grid>
           </View>
@@ -794,6 +795,43 @@ function ReviewBlock({ title, items, onEdit }: { title: string; items: [string, 
       <Row justify="space-between" style={{ marginBottom: 10 }}><T size={12.5} weight="semibold">{title}</T><Link size={12} onPress={onEdit}>Edit</Link></Row>
       <Row gap={18} wrap align="flex-start">{items.map(([k, v]) => <KV key={k} label={k} value={v} />)}</Row>
     </View>
+  );
+}
+
+/** A real calendar date of birth (YYYY-MM-DD), not in the future and not before 1900. */
+function validDob(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(y, mo - 1, day);
+  return y >= 1900 && dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === day && iso <= todayISO();
+}
+
+/** "1/2/1990" or "01021990" → "01 / 02 / 1990", formatting as the user types. */
+function formatDobText(raw: string): string {
+  const segs = raw.split(/\D+/);
+  // A single-digit day or month followed by a separator the user typed ("1/") means "01".
+  const digits = segs.map((s, i) => (i < 2 && s.length === 1 && i < segs.length - 1 ? `0${s}` : s)).join('').slice(0, 8);
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join(' / ');
+}
+
+/** Typed date of birth. Keeps its own text so a half-typed date never reaches the draft as an invalid date. */
+function DobField({ value, onChange, error }: { value: string; onChange: (iso: string) => void; error?: string }) {
+  const [text, setText] = useState(() => (validDob(value) ? fmtSlash(value) : ''));
+  const digits = text.replace(/\D/g, '');
+  const iso = digits.length === 8 ? `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}` : '';
+  const bad = digits.length === 8 && !validDob(iso);
+  return (
+    <Input label="Date of birth" required value={text} keyboardType="number-pad" maxLength={14} placeholder="DD / MM / YYYY"
+      onChangeText={(v) => {
+        const next = formatDobText(v);
+        setText(next);
+        const dg = next.replace(/\D/g, '');
+        const nextIso = dg.length === 8 ? `${dg.slice(4)}-${dg.slice(2, 4)}-${dg.slice(0, 2)}` : '';
+        onChange(validDob(nextIso) ? nextIso : '');
+      }}
+      error={bad ? 'That date doesn’t exist or is in the future.' : value ? undefined : error}
+      right={<Calendar size={15} color={colors.faint} />} hint="DD / MM / YYYY" />
   );
 }
 

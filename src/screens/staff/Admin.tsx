@@ -498,7 +498,9 @@ export function UsersScreen() {
   const toast = useToast();
   const confirm = useConfirm();
   const [tab, setTab] = useState('team');
-  const [inviteOpen, setInviteOpen] = useState(false);
+  const { route } = useRouter();
+  // Quick Add → Add Property Manager lands here with the dialog already open.
+  const [inviteOpen, setInviteOpen] = useState(route.params.create === 'manager');
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const team = state.users.filter((u) => u.role !== 'tenant');
   const pending = team.filter((u) => u.status === 'invited');

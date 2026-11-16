@@ -400,6 +400,7 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
                 { label: 'Add Unit', icon: Grid2x2, onPress: () => navigate('units', { add: '1' }) },
                 { label: 'Add Tenant', icon: UserPlus, onPress: () => navigate('onboarding') },
                 { label: 'Create Lease', icon: FilePlus2, onPress: () => navigate('onboarding') },
+                ...(me.role === 'super_admin' ? [{ label: 'Add Property Manager', icon: ShieldCheck, onPress: () => navigate('users', { create: 'manager' }) }] : []),
                 { label: 'Create Maintenance Request', icon: Wrench, onPress: () => navigate('requests', { create: '1' }) },
                 { label: 'Send Announcement', icon: Megaphone, onPress: () => navigate('communications') },
               ]}
