@@ -501,6 +501,12 @@ export function UsersScreen() {
   const { route } = useRouter();
   // Quick Add → Add Property Manager lands here with the dialog already open.
   const [inviteOpen, setInviteOpen] = useState(route.params.create === 'manager');
+  // Also when Quick Add is used while this screen is already open (adjusted during render, not in an effect).
+  const [seenCreate, setSeenCreate] = useState(route.params.create);
+  if (route.params.create !== seenCreate) {
+    setSeenCreate(route.params.create);
+    if (route.params.create === 'manager') setInviteOpen(true);
+  }
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const team = state.users.filter((u) => u.role !== 'tenant');
   const pending = team.filter((u) => u.status === 'invited');
@@ -563,12 +569,19 @@ function accessLabel(role: Role, ids: string[], properties: { id: string; name: 
   return properties.filter((p) => ids.includes(p.id)).map((p) => p.name).join(', ') || 'None yet';
 }
 
-type AccountKind = 'manager' | 'tenant' | 'other';
+export type AccountKind = 'manager' | 'tenant' | 'other';
 const OTHER_ROLES: Role[] = ['caretaker', 'accountant', 'super_admin'];
 
-function InviteDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (u: CreateUserInput) => Promise<CreateUserResult> }) {
+/** Super Admin's "Create an account" dialog. `initialKind` picks the account type each time it opens. */
+export function InviteDialog({ open, onClose, onCreate, initialKind = 'manager' }: { open: boolean; onClose: () => void; onCreate: (u: CreateUserInput) => Promise<CreateUserResult>; initialKind?: AccountKind }) {
   const { state } = useStore();
-  const [kind, setKind] = useState<AccountKind>('manager');
+  const [kind, setKind] = useState<AccountKind>(initialKind);
+  // Back to the requested account type each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setKind(initialKind);
+  }
   const [otherRole, setOtherRole] = useState<Role>('caretaker');
   const [tenantId, setTenantId] = useState('');
   const [name, setName] = useState('');

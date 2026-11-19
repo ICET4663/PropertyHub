@@ -3,7 +3,7 @@ import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import {
   ArrowLeftRight, Camera, KeyRound, Check, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
-  ShieldCheck, Upload, UserMinus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
+  ShieldCheck, Upload, UserMinus, UserPlus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
 import { useLookup, useScope, useStore, type OnboardingFiles } from '../../store/AppContext';
@@ -11,7 +11,8 @@ import { FileSlot, UploadDocumentDialog, useOpenDocument } from '../../component
 import { CreateTenantLoginDialog } from '../../components/credentials';
 import { ACCEPT, DOC_TYPES, ID_TYPES, checkFile, pickPhotos, type PickedFile } from '../../lib/files';
 import { useRouter } from '../../nav/router';
-import { Page, PageHeader, StickyFooter } from '../../components/shell';
+import { Page, PageHeader, StickyFooter, roleLabel } from '../../components/shell';
+import { InviteDialog } from './Admin';
 import { useMessageTenant } from '../Messages';
 import {
   Avatar, Badge, Button, Card, CardHeader, Chip, Dialog, Divider, EmptyState, Grid, IconTile, Input, KV, Link, Menu, Notice, ProgressBar, Row, Select,
@@ -26,7 +27,7 @@ import { addDays, addMonths, daysBetween, daysUntil, fmtDate, fmtPadded, fmtShor
 
 export function TenantsScreen() {
   const messageTenant = useMessageTenant();
-  const { state, me, approveTenant, deactivateTenant } = useStore();
+  const { state, me, approveTenant, deactivateTenant, createUser } = useStore();
   const scope = useScope();
   const lookup = useLookup();
   const { navigate, route } = useRouter();
@@ -41,7 +42,9 @@ export function TenantsScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveFor, setMoveFor] = useState<Tenant | null>(null);
   const [loginFor, setLoginFor] = useState<Tenant | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
+  const isAdmin = me?.role === 'super_admin';
   const hasLogin = useMemo(() => new Set(state.users.map((u) => u.tenantId).filter(Boolean)), [state.users]);
 
   const withLease = useMemo(() => scope.tenants.map((t) => {
@@ -91,7 +94,7 @@ export function TenantsScreen() {
   return (
     <Page>
       <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Tenants' }]} title="Tenant directory" subtitle={`${counts.all} tenants · ${counts.active} active · ${counts.pending} awaiting approval`}
-        actions={<><Button title="Export" icon={Download} variant="secondary" onPress={exportCsv} />{canEdit ? <Button title="Add tenant" icon={Plus} onPress={() => navigate('onboarding')} /> : null}</>} />
+        actions={<><Button title="Export" icon={Download} variant="secondary" onPress={exportCsv} />{isAdmin ? <Button title="Add property manager" icon={UserPlus} variant="secondary" onPress={() => setManagerOpen(true)} /> : null}{canEdit ? <Button title="Add tenant" icon={Plus} onPress={() => navigate('onboarding')} /> : null}</>} />
       {state.drafts.length && canEdit ? (
         <Notice tone="info" icon={Save} style={{ marginBottom: 14 }} action={<Button title="Resume" size="sm" variant="secondary" onPress={() => navigate('onboarding', { draft: state.drafts[0].id })} />}>
           {`Onboarding draft for ${state.drafts[0].personal.name || 'a new tenant'} saved ${timeAgo(state.drafts[0].savedAt)} (step ${state.drafts[0].step} of 7).`}
@@ -160,6 +163,11 @@ export function TenantsScreen() {
       {confirm.node}
       <MoveTenantDialog tenant={moveFor} onClose={() => setMoveFor(null)} />
       <CreateTenantLoginDialog tenant={loginFor} onClose={() => setLoginFor(null)} />
+      {isAdmin ? <InviteDialog open={managerOpen} initialKind="manager" onClose={() => setManagerOpen(false)} onCreate={async (u) => {
+        const result = await createUser(u);
+        if (result.ok) toast(`${roleLabel(u.role)} account created`, 'success');
+        return result;
+      }} /> : null}
     </Page>
   );
 }
