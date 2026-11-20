@@ -95,6 +95,7 @@ interface Store {
   requestNewId: (tenantId: string, reason: string) => void;
   updateTenant: (id: string, patch: Partial<Tenant>) => void;
   deactivateTenant: (id: string) => void;
+  deleteTenantAccount: (id: string) => Promise<void>;
   moveTenant: (id: string, unitId: string) => void;
   // leases
   renewLease: (leaseId: string, input: RenewInput) => Promise<string>;
@@ -548,6 +549,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut({ scope: 'local' });
       setNow(emptyState());
       return { ok: true };
+    },
+
+    deleteTenantAccount: async (id) => {
+      await writes.current;
+      await rpc('delete_tenant_account', { p_tenant_id: id });
+      setNow({ ...stateRef.current, users: stateRef.current.users.filter((u) => u.tenantId !== id || u.role !== 'tenant') });
     },
 
     // ---------------- global ----------------

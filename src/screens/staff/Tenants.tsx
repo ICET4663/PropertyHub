@@ -193,7 +193,8 @@ function MoveTenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose:
 
 export function TenantProfileScreen({ id }: { id: string }) {
   const messageTenant = useMessageTenant();
-  const { state, me, approveTenant, deactivateTenant, updateTenant, requestNewId } = useStore();
+  const { state, me, approveTenant, deactivateTenant, updateTenant, requestNewId, deleteTenantAccount } = useStore();
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const openDoc = useOpenDocument();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -219,6 +220,8 @@ export function TenantProfileScreen({ id }: { id: string }) {
   const comms = state.notifications.filter((n) => n.audience === t.id).slice(0, 4);
   const logs = state.logs.filter((l) => l.record === t.name || leases.some((x) => x.id === l.record) || reqs.some((r) => r.id === l.record)).slice(0, 12);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
+  const tenancyEnded = !leases.some((l) => !l.terminated && l.end >= todayISO())
+    && (leases.length > 0 || t.status === 'former' || t.status === 'deactivated');
   const days = lease ? daysUntil(lease.end) : 0;
   const total = lease ? daysBetween(lease.start, lease.end) : 1;
 
@@ -383,6 +386,12 @@ export function TenantProfileScreen({ id }: { id: string }) {
               {t.status === 'pending' ? <Button title="Approve tenant" icon={ShieldCheck} size="sm" onPress={() => { approveTenant(t.id); toast(`${t.name} approved — lease is now active`); }} /> : null}
               <Button title="Edit" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
               <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => messageTenant(t.id)} />
+              {tenancyEnded && state.users.some((u) => u.tenantId === t.id && u.role === 'tenant') ? <Button title="Delete tenant account" icon={UserMinus} size="sm" variant="dangerGhost" loading={deletingAccount} disabled={deletingAccount} onPress={() => confirm.ask({ title: `Delete ${t.name}'s account?`, body: 'Their tenancy has ended. This permanently removes their login and notification tokens. Lease, payment and maintenance records are kept. This cannot be undone.', confirm: 'Delete account', danger: true, onConfirm: async () => {
+                setDeletingAccount(true);
+                try { await deleteTenantAccount(t.id); toast('Tenant account deleted', 'success'); }
+                catch (e) { toast(e instanceof Error ? e.message : String(e), 'danger'); }
+                finally { setDeletingAccount(false); }
+              } })} /> : null}
               {!state.users.some((u) => u.tenantId === t.id) && t.status !== 'former' && t.status !== 'deactivated' ? <Button title="Create login" icon={KeyRound} size="sm" variant="secondary" onPress={() => setLoginOpen(true)} /> : null}
               {t.status === 'active' ? <Button title="Move tenant" icon={ArrowLeftRight} size="sm" variant="secondary" onPress={() => setMoveOpen(true)} /> : null}
               {lease ? <Button title="Renew lease" icon={RefreshCw} size="sm" onPress={() => navigate('renew', { id: lease.id })} /> : null}
