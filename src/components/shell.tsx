@@ -164,7 +164,7 @@ export function Brand2({ size = 'md', light = true }: { size?: 'md' | 'lg'; ligh
         <Houses size={s * 0.55} color={colors.card} strokeWidth={2.3} />
       </View>
       <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.black : colors.text} style={{ letterSpacing: -0.3 }}>
-        Prop<T size={size === 'lg' ? 19 : 16.5} weight="normal" color={colors.primary}>Nest</T>
+        Prop<T size={size === 'lg' ? 19 : 16.5} weight="regular" color={colors.primary}>Nest</T>
       </T>
     </View>
   );

@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LucideIcon } from 'lucide-react-native';
 import Svg, { Path } from 'react-native-svg';
 import {
-  Bell, Building2, ChevronDown,ChevronUp, ClipboardCheck, Pin, CreditCard, FileText, KeyRound, LineChart, Mail, ShieldCheck, Smartphone, UserCheck, Wrench,
+  Bell, Building2, ChevronDown,ChevronUp, ClipboardCheck, Pin, CreditCard, FileText, KeyRound, LineChart, ShieldCheck, UserCheck, Wrench,
 } from 'lucide-react-native';
 import { colors, font, radius, shadow, useBreakpoint } from '../theme';
 import { useStore } from '../store/AppContext';
@@ -95,7 +95,7 @@ function ImageSlider({ images, interval = 4000 }: { images: { uri: string; alt: 
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const prevIndex = useRef(0);
-  const opacities = useRef(images.map((_, i) => new Animated.Value(i === 0 ? 1 : 0))).current;
+  const [opacities] = useState(() => images.map((_, i) => new Animated.Value(i === 0 ? 1 : 0)));
   const total = images.length;
 
   // wrap around in both directions = infinite
@@ -425,9 +425,6 @@ export function LandingScreen() {
     return () => clearTimeout(t);
   }, [jump]);
 
-  // Phones skip the landing page.
-  if (Platform.OS !== 'web') return <Redirect href={me ? '/' : '/signIn'} />;
-
   const signIn = me ? () => navigate(homeRouteFor(me.role)) : () => navigate('signIn');
   const navItems: [SectionKey, string][] = [['how', 'How it works'], ['features', 'Features'], ['faq', 'FAQ']];
 
@@ -437,6 +434,9 @@ export function LandingScreen() {
   const { width: screenWidth } = useWindowDimensions();
   const showSlider = screenWidth >= 992;
   const [hoveredNav, setHoveredNav] = useState<string | null>(null);
+
+  // Phones skip the landing page. (After the hooks, so they run in the same order on every render.)
+  if (Platform.OS !== 'web') return <Redirect href={me ? '/' : '/signIn'} />;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.white }}>
@@ -475,7 +475,7 @@ export function LandingScreen() {
           <View style={{flex: 1, width: '100%', justifyContent: 'flex-end', maxWidth: 1280, alignSelf: 'center', paddingHorizontal: isMobile ? 16 : 32, paddingTop: isMobile ? 0: 0, paddingBottom: isMobile ? 28 : 40 }}>
             <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12,}}>
              <View style={{ width: '100%', maxWidth: 500 }}>
-              <Heading level={1} size={bp === 'desktop' ? 36 : isMobile ? 30 : 32} weight='bold' color={colors.white}>
+              <Heading level={1} size={bp === 'desktop' ? 36 : isMobile ? 30 : 32} color={colors.white}>
                 MAKE EVERY PROPERTY COUNT AND DETAIL MATTER
               </Heading>
               <T size={isMobile ? 14 : 15} color={colors.sidebarText} style={{ marginTop: 9, lineHeight: isMobile ? 23 : 23 }}>
