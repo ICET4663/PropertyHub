@@ -12,6 +12,7 @@ import DashboardScreen from './staff/Dashboard';
 import { AddPropertyScreen, PropertiesScreen, PropertyDetailScreen } from './staff/Properties';
 import { BlocksUnitsScreen, LocationsScreen, UnitDetailScreen } from './staff/Portfolio';
 import { MyAccountScreen } from './staff/Account';
+import { OverviewScreen } from './staff/Overview';
 import { OnboardingScreen, TenantProfileScreen, TenantsScreen } from './staff/Tenants';
 import { LeaseDetailScreen, LeasesScreen, RenewLeaseScreen } from './staff/Leases';
 import { MaintenanceOverviewScreen, RequestDetailScreen, RequestsScreen, VendorsScreen } from './staff/Maintenance';
@@ -41,6 +42,7 @@ type AppScreen = React.ComponentType<{ id: string }>;
 
 const STAFF: Record<string, AppScreen> = {
   dashboard: DashboardScreen,
+  overview: OverviewScreen,
   properties: PropertiesScreen,
   property: PropertyDetailScreen,
   addProperty: AddPropertyScreen,
