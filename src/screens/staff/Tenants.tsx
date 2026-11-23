@@ -386,9 +386,16 @@ export function TenantProfileScreen({ id }: { id: string }) {
               {t.status === 'pending' ? <Button title="Approve tenant" icon={ShieldCheck} size="sm" onPress={() => { approveTenant(t.id); toast(`${t.name} approved — lease is now active`); }} /> : null}
               <Button title="Edit" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
               <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => messageTenant(t.id)} />
-              {tenancyEnded && state.users.some((u) => u.tenantId === t.id && u.role === 'tenant') ? <Button title="Delete tenant account" icon={UserMinus} size="sm" variant="dangerGhost" loading={deletingAccount} disabled={deletingAccount} onPress={() => confirm.ask({ title: `Delete ${t.name}'s account?`, body: 'Their tenancy has ended. This permanently removes their login and notification tokens. Lease, payment and maintenance records are kept. This cannot be undone.', confirm: 'Delete account', danger: true, onConfirm: async () => {
+              {state.users.some((u) => u.tenantId === t.id && u.role === 'tenant') ? <Button title={tenancyEnded ? 'Delete tenant account' : 'Tenant leaving: delete account'} icon={UserMinus} size="sm" variant="dangerGhost" loading={deletingAccount} disabled={deletingAccount} onPress={() => confirm.ask({
+                title: `Delete ${t.name}'s account?`,
+                body: tenancyEnded
+                  ? 'Their tenancy has ended. This permanently removes their login and notification tokens. Lease, payment and maintenance records are kept. This cannot be undone.'
+                  : `Use this when ${t.name} is leaving before their lease ends. Their lease will be ended today, ${unit ? `Flat ${unit.code}` : 'their unit'} marked vacant, and their login and notification tokens permanently removed. Lease, payment and maintenance records are kept. This cannot be undone.`,
+                confirm: tenancyEnded ? 'Delete account' : 'End tenancy and delete',
+                danger: true,
+                onConfirm: async () => {
                 setDeletingAccount(true);
-                try { await deleteTenantAccount(t.id); toast('Tenant account deleted', 'success'); }
+                try { await deleteTenantAccount(t.id, { endTenancy: !tenancyEnded }); toast(tenancyEnded ? 'Tenant account deleted' : 'Tenancy ended and account deleted', 'success'); }
                 catch (e) { toast(e instanceof Error ? e.message : String(e), 'danger'); }
                 finally { setDeletingAccount(false); }
               } })} /> : null}

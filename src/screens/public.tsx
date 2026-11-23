@@ -790,7 +790,7 @@ export function PrivacyScreen() {
           title: 'Your choices',
           body: [
             'You can update your contact details from your profile, turn notifications off in your phone\'s settings, and ask your management organisation for a copy of your information or for corrections.',
-            'You can delete your account yourself from Profile (tenants) or My account (staff). This removes your sign-in and your phone\'s notification tokens straight away. Your management organisation keeps the tenancy and work records it needs, as described above, and can delete them on request when it no longer needs them.',
+            'You can delete your account yourself from Profile (tenants) or My account (staff). If you are a tenant, a Super Admin or your property manager can also delete your account when your tenancy ends or when you tell them you are leaving. Either way this removes your sign-in and your phone\'s notification tokens straight away. Your management organisation keeps the tenancy and work records it needs, as described above, and can delete them on request when it no longer needs them.',
             contactLine,
           ],
         },

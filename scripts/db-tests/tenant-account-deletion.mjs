@@ -47,4 +47,22 @@ export default async function ({ q, as, test, expectError }) {
     assert.equal((await q(`select id from auth.users where id = $1`, [otherTenant])).rows.length, 0);
     assert.equal((await q(`select id from public.leases where tenant_id = 'delT2'`)).rows.length, 2);
   });
+  await test('a tenant leaving early: deletion needs confirmation, then ends the tenancy and keeps records', async () => {
+    const leaver = 'd0000000-0000-4000-8000-000000000006';
+    await q(`insert into auth.users (id, email) values ($1, 'delete5@test.example')`, [leaver]);
+    await q(`insert into public.units (id, property_id, block_id, code, type, status) values ('delU2', 'delP', 'delB', 'A2', 'Studio', 'occupied')`);
+    await q(`insert into public.tenants (id, name, property_id, unit_id, status) values ('delT3', 'Leaving tenant', 'delP', 'delU2', 'active')`);
+    await q(`update public.profiles set tenant_id = 'delT3' where id = $1`, [leaver]);
+    await q(`insert into public.leases (id, tenant_id, unit_id, property_id, start_date, end_date, rent) values
+      ('delLive', 'delT3', 'delU2', 'delP', current_date - 10, current_date + 300, 100)`);
+    await expectError(del(manager, 'delT3'), /tenancy must have ended/);
+    await expectError(as(outsider, 'authenticated', `select public.delete_tenant_account('delT3', true)`), /assigned property manager/);
+    await expectError(as(leaver, 'authenticated', `select public.delete_tenant_account('delT3', true)`), /assigned property manager/);
+    await as(manager, 'authenticated', `select public.delete_tenant_account('delT3', true)`);
+    assert.equal((await q(`select id from auth.users where id = $1`, [leaver])).rows.length, 0);
+    const t = (await q(`select status, unit_id from public.tenants where id = 'delT3'`)).rows[0];
+    assert.deepEqual([t.status, t.unit_id], ['former', null]);
+    assert.equal((await q(`select terminated from public.leases where id = 'delLive'`)).rows[0].terminated, true);
+    assert.equal((await q(`select status from public.units where id = 'delU2'`)).rows[0].status, 'vacant');
+  });
 }
