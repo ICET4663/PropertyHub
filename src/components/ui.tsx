@@ -545,7 +545,10 @@ export function Notice({ tone = 'info', icon, children, title, action, style }: 
       <Icon size={14} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
       <View style={{ flex: 1 }}>
         {title ? <T size={13} weight="semibold" color={tone === 'info' ? colors.text : fg}>{title}</T> : null}
-        {typeof children === 'string' ? <T size={12} weight="semibold" color={colors.textSoft}>{children}</T> : children}
+        {/* Text with {interpolations} arrives as an array of strings; wrap it too, or React Native refuses raw text in a View. */}
+        {React.Children.toArray(children).every((c) => typeof c === 'string' || typeof c === 'number') && children != null
+          ? <T size={12} weight="semibold" color={colors.textSoft}>{children}</T>
+          : children}
         {stacked ? <View style={{ marginTop: 10, alignItems: 'flex-start' }}>{action}</View> : null}
       </View>
       {stacked ? null : action}
