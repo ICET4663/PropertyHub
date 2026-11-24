@@ -154,6 +154,9 @@ function CodeInput({ value, onChange, length = 6, error }: { value: string; onCh
 // ---------------------------------------------------------------- Sign in
 
 // Seeded by `npm run db:seed` (password demo1234). Their emails don't receive mail, so two-step can't be used with them.
+// Shown only in development builds, or when EXPO_PUBLIC_SHOW_DEMO_ACCOUNTS=true (for a demo deployment). Never on a live site:
+// the list includes a Super Admin.
+const SHOW_DEMO_ACCOUNTS = __DEV__ || process.env.EXPO_PUBLIC_SHOW_DEMO_ACCOUNTS === 'true';
 const DEMO_ACCOUNTS = [
   { email: 'femi@adewaleproperties.ng', label: 'Femi Adewale', role: 'Super Admin' },
   { email: 'grace@adewaleproperties.ng', label: 'Grace Uche', role: 'Property Manager' },
@@ -161,13 +164,13 @@ const DEMO_ACCOUNTS = [
 ];
 
 export function SignInScreen() {
-  const { signIn, sendCode } = useStore();
+  const { signIn } = useStore();
   const { navigate } = useRouter();
   const { setFlow } = useFlow();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState<'password' | 'code' | null>(null);
+  const [loading, setLoading] = useState<'password' | null>(null);
 
   const submit = async () => {
     setError('');
@@ -180,17 +183,6 @@ export function SignInScreen() {
     // otherwise the store has opened the app for this role
   };
 
-  const otp = async () => {
-    setError('');
-    if (!isEmail(email)) { setError('Enter the email address on your account first.'); return; }
-    setLoading('code');
-    const r = await sendCode(email, 'signin');
-    setLoading(null);
-    if (!r.ok) { setError(r.error); return; }
-    setFlow({ email: email.trim(), codeMode: 'signin' });
-    navigate('verifyCode');
-  };
-
   return (
     <AuthLayout top={<>{Platform.OS === 'web' ? <BackLink label="PropertyHub home" to="welcome" /> : <View />}<T size={12.5} color={colors.subtext}>No account? Ask your property manager.</T></>}>
       <Heading title="Welcome back" body="Sign in to manage your properties or your tenancy. We'll take you to the right workspace for your role." />
@@ -199,21 +191,19 @@ export function SignInScreen() {
         <Input label="Password" value={password} onChangeText={setPassword} secure placeholder="Enter your password" labelRight={<Link size={12} onPress={() => navigate('forgot')}>Forgot password?</Link>} onSubmitEditing={submit} autoComplete="password" />
         {error ? <Notice tone="danger">{error}</Notice> : null}
         <Button title="Sign in" onPress={submit} loading={loading === 'password'} style={{ backgroundColor: '#3439CA'}} disabled={!!loading} size="lg" />
-        {/* <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ flex: 1, height: 1, backgroundColor: colors.border }} /><T size={12} color={colors.faint}>or</T><View style={{ flex: 1, height: 1, backgroundColor: colors.border }} />
-        </View>
-        <Button title="Email me a sign-in code" icon={Mail} variant="secondary" size="lg" onPress={otp} loading={loading === 'code'} disabled={!!loading} /> */}
         {/* <Notice tone="info" icon={ShieldCheck}>Landlords, property managers and tenants all sign in here. Access is limited to what your role allows.</Notice> */}
       </View>
-      <View style={{ marginTop: 22, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, padding: 12 }}>
-        <T size={11} weight="bold" color={colors.faint} upper style={{ marginBottom: 6 }}>Demo accounts · password demo1234</T>
-        {DEMO_ACCOUNTS.map((d) => (
-          <Touch key={d.email} onPress={() => { setEmail(d.email); setPassword('demo1234'); setError(''); }} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, paddingHorizontal: 6, borderRadius: 6 }} hoverStyle={{ backgroundColor: colors.cardAlt }}>
-            <T size={12.5} weight="semibold">{d.label}</T>
-            <T size={12} color={colors.subtext}>{d.role}</T>
-          </Touch>
-        ))}
-      </View>
+      {SHOW_DEMO_ACCOUNTS ? (
+        <View style={{ marginTop: 22, borderWidth: 1, borderColor: colors.border, borderStyle: 'dashed', borderRadius: radius.md, padding: 12 }}>
+          <T size={11} weight="bold" color={colors.faint} upper style={{ marginBottom: 6 }}>Demo accounts · password demo1234</T>
+          {DEMO_ACCOUNTS.map((d) => (
+            <Touch key={d.email} onPress={() => { setEmail(d.email); setPassword('demo1234'); setError(''); }} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, paddingHorizontal: 6, borderRadius: 6 }} hoverStyle={{ backgroundColor: colors.cardAlt }}>
+              <T size={12.5} weight="semibold">{d.label}</T>
+              <T size={12} color={colors.subtext}>{d.role}</T>
+            </Touch>
+          ))}
+        </View>
+      ) : null}
     </AuthLayout>
   );
 }

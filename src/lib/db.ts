@@ -175,7 +175,7 @@ export async function pushChanges(prev: AppState, next: AppState, me: { id: stri
         }
       }
       if (inserts.length) check(await supabase.from(table).insert(inserts));
-      await Promise.all(updates.map(async (u) => check(await supabase.from(table).update(u.patch).eq('id', u.id))));
+      await Promise.all(updates.map(async (u) => checkAffected(await supabase.from(table).update(u.patch).eq('id', u.id).select('id'))));
       if (!insertOnly) {
         const kept = new Set(b.map((x) => x.id));
         const gone = a.filter((x) => !kept.has(x.id)).map((x) => x.id);
@@ -188,7 +188,7 @@ export async function pushChanges(prev: AppState, next: AppState, me: { id: stri
   if (prev.users !== next.users) await pushUsers(prev.users, next.users);
   if (prev.settings !== next.settings) {
     const patch = diffRow(prev.settings, next.settings);
-    if (Object.keys(patch).length) check(await supabase.from('org_settings').update(patch).eq('id', true));
+    if (Object.keys(patch).length) checkAffected(await supabase.from('org_settings').update(patch).eq('id', true).select('id'));
   }
   for (const d of deletes.reverse()) check(await supabase.from(d.table).delete().in('id', d.ids));
 }
@@ -218,7 +218,7 @@ async function pushUsers(prev: User[], next: User[]) {
     if (!old) throw new Error('Inviting a team member needs the invite server function, which is not set up yet.');
     if (old === u) continue;
     const patch = diffRow(old, u, ['propertyIds']);
-    if (Object.keys(patch).length) check(await supabase.from('profiles').update(patch).eq('id', u.id));
+    if (Object.keys(patch).length) checkAffected(await supabase.from('profiles').update(patch).eq('id', u.id).select('id'));
     if (JSON.stringify(old.propertyIds ?? []) !== JSON.stringify(u.propertyIds ?? [])) {
       check(await supabase.from('profile_properties').delete().eq('profile_id', u.id));
       if (u.propertyIds?.length) check(await supabase.from('profile_properties').insert(u.propertyIds.map((property_id) => ({ profile_id: u.id, property_id }))));
