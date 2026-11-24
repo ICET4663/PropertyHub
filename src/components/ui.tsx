@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Animated, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextInput,
+  ActivityIndicator, Animated, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, PressableProps, ScrollView, StyleProp, StyleSheet, Text, TextInput,
   TextInputProps, TextStyle, View, ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,9 +50,9 @@ export function Link({ children, onPress, size = 13, color = colors.primary, wei
 // Inner Touches (e.g. an action button inside a pressable card) drop the role so they render as a <div>.
 const InsideTouch = createContext(false);
 
-export function Touch({ onPress, style, hoverStyle, children, disabled, accessibilityLabel, className }: {
+export function Touch({ onPress, style, hoverStyle, children, disabled, accessibilityLabel, className, ...rest }: {
   onPress?: () => void; style?: StyleProp<ViewStyle>; hoverStyle?: StyleProp<ViewStyle>; children: React.ReactNode; disabled?: boolean; accessibilityLabel?: string; className?: string;
-}) {
+} & Omit<PressableProps, 'onPress' | 'style' | 'children' | 'disabled' | 'accessibilityLabel' | 'className'>) {
   const nested = useContext(InsideTouch);
   return (
     <Pressable
@@ -61,6 +61,7 @@ export function Touch({ onPress, style, hoverStyle, children, disabled, accessib
       disabled={disabled}
       accessibilityRole={nested && Platform.OS === 'web' ? undefined : 'button'}
       accessibilityLabel={accessibilityLabel}
+      {...rest}
       style={(s: any) => [style, s.hovered && !disabled && hoverStyle, s.pressed && !disabled && { opacity: 0.85 }]}
     >
       <InsideTouch.Provider value>{children}</InsideTouch.Provider>
@@ -544,7 +545,10 @@ export function Notice({ tone = 'info', icon, children, title, action, style }: 
       <Icon size={14} color={fg} strokeWidth={2} style={stacked ? { marginTop: 2 } : undefined} />
       <View style={{ flex: 1 }}>
         {title ? <T size={13} weight="semibold" color={tone === 'info' ? colors.text : fg}>{title}</T> : null}
-        {typeof children === 'string' ? <T size={12} weight="semibold" color={colors.textSoft}>{children}</T> : children}
+        {/* Text with {interpolations} arrives as an array of strings; wrap it too, or React Native refuses raw text in a View. */}
+        {React.Children.toArray(children).every((c) => typeof c === 'string' || typeof c === 'number') && children != null
+          ? <T size={12} weight="semibold" color={colors.textSoft}>{children}</T>
+          : children}
         {stacked ? <View style={{ marginTop: 10, alignItems: 'flex-start' }}>{action}</View> : null}
       </View>
       {stacked ? null : action}

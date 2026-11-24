@@ -5,7 +5,7 @@ import type { LucideIcon } from 'lucide-react-native';
 import {
   Activity, Bell, Building2, ChevronDown, ChevronRight, CircleHelp, FileText, Folder, Grid2x2, Houses, House, LayoutGrid, LogOut, MapPin, Megaphone,
   Menu as MenuIcon, MessageCircle, PanelLeft, Plus, Search, ShieldCheck, SlidersHorizontal, UserPlus, UserRound, Users,
-  Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, WifiOff, X, ClipboardList, Contact, Ellipsis, Receipt,
+  Wrench, Briefcase, ChartColumn, CircleUser, FilePlus2, WifiOff, X, ClipboardList, Contact, Ellipsis, Network, Receipt,
 } from 'lucide-react-native';
 import { colors, font, shadow, useBreakpoint } from '../theme';
 import { useLookup, useScope, useStore } from '../store/AppContext';
@@ -43,7 +43,7 @@ const MOBILE_ROLES: Role[] = ['tenant', 'caretaker'];
 /** Screens each staff role may open (null: all). Tenants get the screens in the TENANT map of src/screens. */
 const STAFF_ACCESS: Record<Exclude<Role, 'tenant'>, string[] | null> = {
   super_admin: null,
-  manager: ['dashboard', 'messages', 'properties', 'locations', 'units', 'tenants', 'leases', 'payments', 'maintenance', 'requests', 'vendors', 'communications', 'reports', 'documents', 'notifications', 'logs', 'help'],
+  manager: ['dashboard', 'overview', 'messages', 'properties', 'locations', 'units', 'tenants', 'leases', 'payments', 'maintenance', 'requests', 'vendors', 'communications', 'reports', 'documents', 'notifications', 'logs', 'help'],
   accountant: ['dashboard', 'messages', 'properties', 'units', 'tenants', 'leases', 'payments', 'reports', 'documents', 'notifications', 'help'],
   caretaker: ['jobs', 'contacts', 'messages', 'maintenance', 'requests', 'vendors', 'units', 'notifications', 'help'],
 };
@@ -82,6 +82,7 @@ function useNav(): NavSection[] {
     ...(r === 'caretaker' ? [{ title: 'My work', items: [{ key: 'jobs', label: 'Today’s jobs', icon: ClipboardList, badge: myJobs }, { key: 'contacts', label: 'Property contacts', icon: Contact }] }] : []),
     { title: 'Overview', items: [
       { key: 'dashboard', label: 'Dashboard', icon: LayoutGrid },
+      { key: 'overview', label: 'Properties & tenants', icon: Network },
       { key: 'messages', label: 'Messages', icon: MessageCircle, badge: unreadTotal, children: [{ key: 'messages', label: 'Chats' }, { key: 'communications', label: 'Announcements', icon: Megaphone }] },
     ] },
     { title: 'Manage', items: [
@@ -164,7 +165,7 @@ export function Brand2({ size = 'md', light = true }: { size?: 'md' | 'lg'; ligh
         <Houses size={s * 0.55} color={colors.card} strokeWidth={2.3} />
       </View>
       <T size={size === 'lg' ? 19 : 16.5} weight="bold" color={light ? colors.black : colors.text} style={{ letterSpacing: -0.3 }}>
-        Prop<T size={size === 'lg' ? 19 : 16.5} weight="normal" color={colors.primary}>Nest</T>
+        Prop<T size={size === 'lg' ? 19 : 16.5} weight="regular" color={colors.primary}>Nest</T>
       </T>
     </View>
   );
@@ -400,6 +401,7 @@ function Topbar({ onToggleSidebar, mobile, tabs }: { onToggleSidebar: () => void
                 { label: 'Add Unit', icon: Grid2x2, onPress: () => navigate('units', { add: '1' }) },
                 { label: 'Add Tenant', icon: UserPlus, onPress: () => navigate('onboarding') },
                 { label: 'Create Lease', icon: FilePlus2, onPress: () => navigate('onboarding') },
+                ...(me.role === 'super_admin' ? [{ label: 'Add Property Manager', icon: ShieldCheck, onPress: () => navigate('users', { create: 'manager' }) }] : []),
                 { label: 'Create Maintenance Request', icon: Wrench, onPress: () => navigate('requests', { create: '1' }) },
                 { label: 'Send Announcement', icon: Megaphone, onPress: () => navigate('communications') },
               ]}

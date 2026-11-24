@@ -95,6 +95,8 @@ interface Store {
   requestNewId: (tenantId: string, reason: string) => void;
   updateTenant: (id: string, patch: Partial<Tenant>) => void;
   deactivateTenant: (id: string) => void;
+  /** Deletes a tenant's login. With endTenancy (tenant leaving early) the server first ends the lease and vacates the unit. */
+  deleteTenantAccount: (id: string, opts?: { endTenancy?: boolean }) => Promise<void>;
   moveTenant: (id: string, unitId: string) => void;
   // leases
   renewLease: (leaseId: string, input: RenewInput) => Promise<string>;
@@ -548,6 +550,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut({ scope: 'local' });
       setNow(emptyState());
       return { ok: true };
+    },
+
+    deleteTenantAccount: async (id, opts) => {
+      await writes.current;
+      await rpc('delete_tenant_account', { p_tenant_id: id, p_end_tenancy: !!opts?.endTenancy });
+      const s = stateRef.current;
+      const t = s.tenants.find((x) => x.id === id);
+      const ending = !!opts?.endTenancy && !!t && (t.status === 'active' || t.status === 'pending');
+      setNow({
+        ...s,
+        users: s.users.filter((u) => u.tenantId !== id || u.role !== 'tenant'),
+        ...(ending ? {
+          tenants: s.tenants.map((x) => (x.id === id ? { ...x, status: 'former' as const, unitId: undefined } : x)),
+          leases: s.leases.map((l) => (l.tenantId === id && !l.terminated ? { ...l, terminated: true } : l)),
+          units: s.units.map((u) => (u.id === t.unitId ? { ...u, status: 'vacant' as const, vacantSince: todayISO(), vacantNote: 'Listed' as const } : u)),
+        } : {}),
+      });
     },
 
     // ---------------- global ----------------

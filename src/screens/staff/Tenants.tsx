@@ -3,7 +3,7 @@ import { Platform, View } from 'react-native';
 import { Image } from 'expo-image';
 import {
   ArrowLeftRight, Camera, KeyRound, Check, Download, Ellipsis, Eye, FileText, Mail, MapPin, MessageSquare, Pencil, Phone, Plus, RefreshCw, Save, Search,
-  ShieldCheck, Upload, UserMinus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
+  ShieldCheck, Upload, UserMinus, UserPlus, Users, ChevronLeft, ChevronRight, Info, Calendar, Building2, Flag,
 } from 'lucide-react-native';
 import { colors, radius, useBreakpoint } from '../../theme';
 import { useLookup, useScope, useStore, type OnboardingFiles } from '../../store/AppContext';
@@ -11,7 +11,8 @@ import { FileSlot, UploadDocumentDialog, useOpenDocument } from '../../component
 import { CreateTenantLoginDialog } from '../../components/credentials';
 import { ACCEPT, DOC_TYPES, ID_TYPES, checkFile, pickPhotos, type PickedFile } from '../../lib/files';
 import { useRouter } from '../../nav/router';
-import { Page, PageHeader, StickyFooter } from '../../components/shell';
+import { Page, PageHeader, StickyFooter, roleLabel } from '../../components/shell';
+import { InviteDialog } from './Admin';
 import { useMessageTenant } from '../Messages';
 import {
   Avatar, Badge, Button, Card, CardHeader, Chip, Dialog, Divider, EmptyState, Grid, IconTile, Input, KV, Link, Menu, Notice, ProgressBar, Row, Select,
@@ -26,7 +27,7 @@ import { addDays, addMonths, daysBetween, daysUntil, fmtDate, fmtPadded, fmtShor
 
 export function TenantsScreen() {
   const messageTenant = useMessageTenant();
-  const { state, me, approveTenant, deactivateTenant } = useStore();
+  const { state, me, approveTenant, deactivateTenant, createUser } = useStore();
   const scope = useScope();
   const lookup = useLookup();
   const { navigate, route } = useRouter();
@@ -41,7 +42,9 @@ export function TenantsScreen() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [moveFor, setMoveFor] = useState<Tenant | null>(null);
   const [loginFor, setLoginFor] = useState<Tenant | null>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
+  const isAdmin = me?.role === 'super_admin';
   const hasLogin = useMemo(() => new Set(state.users.map((u) => u.tenantId).filter(Boolean)), [state.users]);
 
   const withLease = useMemo(() => scope.tenants.map((t) => {
@@ -91,7 +94,7 @@ export function TenantsScreen() {
   return (
     <Page>
       <PageHeader crumbs={[{ label: 'Dashboard', to: 'dashboard' }, { label: 'Tenants' }]} title="Tenant directory" subtitle={`${counts.all} tenants · ${counts.active} active · ${counts.pending} awaiting approval`}
-        actions={<><Button title="Export" icon={Download} variant="secondary" onPress={exportCsv} />{canEdit ? <Button title="Add tenant" icon={Plus} onPress={() => navigate('onboarding')} /> : null}</>} />
+        actions={<><Button title="Export" icon={Download} variant="secondary" onPress={exportCsv} />{isAdmin ? <Button title="Add property manager" icon={UserPlus} variant="secondary" onPress={() => setManagerOpen(true)} /> : null}{canEdit ? <Button title="Add tenant" icon={Plus} onPress={() => navigate('onboarding')} /> : null}</>} />
       {state.drafts.length && canEdit ? (
         <Notice tone="info" icon={Save} style={{ marginBottom: 14 }} action={<Button title="Resume" size="sm" variant="secondary" onPress={() => navigate('onboarding', { draft: state.drafts[0].id })} />}>
           {`Onboarding draft for ${state.drafts[0].personal.name || 'a new tenant'} saved ${timeAgo(state.drafts[0].savedAt)} (step ${state.drafts[0].step} of 7).`}
@@ -160,6 +163,11 @@ export function TenantsScreen() {
       {confirm.node}
       <MoveTenantDialog tenant={moveFor} onClose={() => setMoveFor(null)} />
       <CreateTenantLoginDialog tenant={loginFor} onClose={() => setLoginFor(null)} />
+      {isAdmin ? <InviteDialog open={managerOpen} initialKind="manager" onClose={() => setManagerOpen(false)} onCreate={async (u) => {
+        const result = await createUser(u);
+        if (result.ok) toast(`${roleLabel(u.role)} account created`, 'success');
+        return result;
+      }} /> : null}
     </Page>
   );
 }
@@ -185,7 +193,8 @@ function MoveTenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose:
 
 export function TenantProfileScreen({ id }: { id: string }) {
   const messageTenant = useMessageTenant();
-  const { state, me, approveTenant, deactivateTenant, updateTenant, requestNewId } = useStore();
+  const { state, me, approveTenant, deactivateTenant, updateTenant, requestNewId, deleteTenantAccount } = useStore();
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const openDoc = useOpenDocument();
   const [uploadOpen, setUploadOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -211,6 +220,8 @@ export function TenantProfileScreen({ id }: { id: string }) {
   const comms = state.notifications.filter((n) => n.audience === t.id).slice(0, 4);
   const logs = state.logs.filter((l) => l.record === t.name || leases.some((x) => x.id === l.record) || reqs.some((r) => r.id === l.record)).slice(0, 12);
   const canEdit = me?.role === 'super_admin' || me?.role === 'manager';
+  const tenancyEnded = !leases.some((l) => !l.terminated && l.end >= todayISO())
+    && (leases.length > 0 || t.status === 'former' || t.status === 'deactivated');
   const days = lease ? daysUntil(lease.end) : 0;
   const total = lease ? daysBetween(lease.start, lease.end) : 1;
 
@@ -375,6 +386,19 @@ export function TenantProfileScreen({ id }: { id: string }) {
               {t.status === 'pending' ? <Button title="Approve tenant" icon={ShieldCheck} size="sm" onPress={() => { approveTenant(t.id); toast(`${t.name} approved — lease is now active`); }} /> : null}
               <Button title="Edit" icon={Pencil} size="sm" variant="secondary" onPress={() => setEditOpen(true)} />
               <Button title="Message" icon={MessageSquare} size="sm" variant="secondary" onPress={() => messageTenant(t.id)} />
+              {state.users.some((u) => u.tenantId === t.id && u.role === 'tenant') ? <Button title={tenancyEnded ? 'Delete tenant account' : 'Tenant leaving: delete account'} icon={UserMinus} size="sm" variant="dangerGhost" loading={deletingAccount} disabled={deletingAccount} onPress={() => confirm.ask({
+                title: `Delete ${t.name}'s account?`,
+                body: tenancyEnded
+                  ? 'Their tenancy has ended. This permanently removes their login and notification tokens. Lease, payment and maintenance records are kept. This cannot be undone.'
+                  : `Use this when ${t.name} is leaving before their lease ends. Their lease will be ended today, ${unit ? `Flat ${unit.code}` : 'their unit'} marked vacant, and their login and notification tokens permanently removed. Lease, payment and maintenance records are kept. This cannot be undone.`,
+                confirm: tenancyEnded ? 'Delete account' : 'End tenancy and delete',
+                danger: true,
+                onConfirm: async () => {
+                setDeletingAccount(true);
+                try { await deleteTenantAccount(t.id, { endTenancy: !tenancyEnded }); toast(tenancyEnded ? 'Tenant account deleted' : 'Tenancy ended and account deleted', 'success'); }
+                catch (e) { toast(e instanceof Error ? e.message : String(e), 'danger'); }
+                finally { setDeletingAccount(false); }
+              } })} /> : null}
               {!state.users.some((u) => u.tenantId === t.id) && t.status !== 'former' && t.status !== 'deactivated' ? <Button title="Create login" icon={KeyRound} size="sm" variant="secondary" onPress={() => setLoginOpen(true)} /> : null}
               {t.status === 'active' ? <Button title="Move tenant" icon={ArrowLeftRight} size="sm" variant="secondary" onPress={() => setMoveOpen(true)} /> : null}
               {lease ? <Button title="Renew lease" icon={RefreshCw} size="sm" onPress={() => navigate('renew', { id: lease.id })} /> : null}
@@ -438,7 +462,7 @@ function emptyDraft(startedBy: string, unitId?: string, state?: ReturnType<typeo
   const start = toISODate(addDays(new Date(), 7));
   return {
     id: uid('onb'), step: 1, startedBy, savedAt: new Date().toISOString(),
-    personal: { name: '', phone: '', email: '', address: '', dob: '1992-01-01', gender: 'Female' },
+    personal: { name: '', phone: '', email: '', address: '', dob: '', gender: 'Female' },
     kin: { name: '', relationship: 'Sister', phone: '', email: '', address: '' },
     employment: { status: 'Employed', employer: '', occupation: '', workAddress: '' },
     id_: { type: 'National ID (NIN slip)', number: '', docUploaded: false, photoUploaded: false },
@@ -495,6 +519,7 @@ export function OnboardingScreen() {
       if (d.personal.phone.replace(/\D/g, '').length < 10) e.phone = 'Enter a valid phone number.';
       if (!/^\S+@\S+\.\S+$/.test(d.personal.email)) e.email = 'Enter a valid email.';
       if (!d.personal.address.trim()) e.address = 'Enter the current address.';
+      if (!validDob(d.personal.dob)) e.dob = 'Enter a valid date of birth, e.g. 14 / 06 / 1991.';
       if (state.tenants.some((t) => t.email.toLowerCase() === d.personal.email.toLowerCase() && t.status !== 'former' && t.status !== 'deactivated')) e.email = 'A tenant with this email already exists.';
     }
     if (n === 2) {
@@ -599,7 +624,7 @@ export function OnboardingScreen() {
             </Grid>
             <Input label="Current residential address" required value={d.personal.address} onChangeText={(v) => setP('address', v)} error={errors.address} placeholder="7 Ogunlana Drive, Surulere, Lagos" />
             <Grid cols={{ mobile: 1, tablet: 2 }} gap={14}>
-              <Input label="Date of birth" required value={fmtSlash(d.personal.dob)} onChangeText={(v) => { const m = v.match(/(\d{1,2})\D+(\d{1,2})\D+(\d{4})/); if (m) setP('dob', `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`); }} right={<Calendar size={15} color={colors.faint} />} hint="DD / MM / YYYY" />
+              <DobField value={d.personal.dob} onChange={(v) => setP('dob', v)} error={errors.dob} />
               <Select label="Gender" required value={d.personal.gender} onChange={(v) => setP('gender', v)} options={[{ value: 'Female', label: 'Female' }, { value: 'Male', label: 'Male' }]} />
             </Grid>
           </View>
@@ -794,6 +819,43 @@ function ReviewBlock({ title, items, onEdit }: { title: string; items: [string, 
       <Row justify="space-between" style={{ marginBottom: 10 }}><T size={12.5} weight="semibold">{title}</T><Link size={12} onPress={onEdit}>Edit</Link></Row>
       <Row gap={18} wrap align="flex-start">{items.map(([k, v]) => <KV key={k} label={k} value={v} />)}</Row>
     </View>
+  );
+}
+
+/** A real calendar date of birth (YYYY-MM-DD), not in the future and not before 1900. */
+function validDob(iso: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return false;
+  const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(y, mo - 1, day);
+  return y >= 1900 && dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === day && iso <= todayISO();
+}
+
+/** "1/2/1990" or "01021990" → "01 / 02 / 1990", formatting as the user types. */
+function formatDobText(raw: string): string {
+  const segs = raw.split(/\D+/);
+  // A single-digit day or month followed by a separator the user typed ("1/") means "01".
+  const digits = segs.map((s, i) => (i < 2 && s.length === 1 && i < segs.length - 1 ? `0${s}` : s)).join('').slice(0, 8);
+  return [digits.slice(0, 2), digits.slice(2, 4), digits.slice(4)].filter(Boolean).join(' / ');
+}
+
+/** Typed date of birth. Keeps its own text so a half-typed date never reaches the draft as an invalid date. */
+function DobField({ value, onChange, error }: { value: string; onChange: (iso: string) => void; error?: string }) {
+  const [text, setText] = useState(() => (validDob(value) ? fmtSlash(value) : ''));
+  const digits = text.replace(/\D/g, '');
+  const iso = digits.length === 8 ? `${digits.slice(4)}-${digits.slice(2, 4)}-${digits.slice(0, 2)}` : '';
+  const bad = digits.length === 8 && !validDob(iso);
+  return (
+    <Input label="Date of birth" required value={text} keyboardType="number-pad" maxLength={14} placeholder="DD / MM / YYYY"
+      onChangeText={(v) => {
+        const next = formatDobText(v);
+        setText(next);
+        const dg = next.replace(/\D/g, '');
+        const nextIso = dg.length === 8 ? `${dg.slice(4)}-${dg.slice(2, 4)}-${dg.slice(0, 2)}` : '';
+        onChange(validDob(nextIso) ? nextIso : '');
+      }}
+      error={bad ? 'That date doesn’t exist or is in the future.' : value ? undefined : error}
+      right={<Calendar size={15} color={colors.faint} />} hint="DD / MM / YYYY" />
   );
 }
 

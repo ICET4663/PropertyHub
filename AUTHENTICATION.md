@@ -43,3 +43,9 @@ node --env-file=.env.local scripts/verify-access.mjs
 ```
 
 This checks seeded logins and every table the app loads. It creates and removes a temporary confirmed test account to check the signup profile trigger, blocked self-promotion, admin role assignment, manager property scope, and accountant write restrictions. It does not verify delivery to a real inbox or the browser UI. Keep `SUPABASE_SECRET_KEY` local; it is used only for creating/removing the test fixture.
+
+# Deleting tenant accounts after tenancy
+
+Superadmins and the property's assigned managers can use **Delete tenant account** on a tenant's detail screen after tenancy ends. The server refuses deletion while any unterminated lease is current or future, including renewals. Tenants without leases must be marked former or deactivated first. Confirmation is required; deletion permanently removes the login and notification tokens while retaining tenancy, lease, payment and maintenance history.
+
+Apply `supabase/migrations/20261120000000_staff_tenant_account_deletion.sql` to enable this action on the Supabase project.
